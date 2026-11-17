@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Epoch Panel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="/css/style.css">
+<link rel="icon" href="/favicon.png" type="image/png">
+</head>
+<body>
+<div class="shell">
+  <aside class="side">
+    <div class="brand"><span class="mark"><img src="/img/epoch-mark.png" alt=""></span><span>EPOCH<small>Team panel · since 22 Sep 2026</small></span></div>
+    <nav class="nav" id="nav">
+      <span class="nav-label">Me</span>
+      <a href="#me" data-page="me">My panel</a>
+      <a href="#account" data-page="account">My account</a>
+      <span class="nav-label">Team</span>
+      <a href="#dashboard" data-page="dashboard">Dashboard</a>
+      <a href="#tasks" data-page="tasks">Task board</a>
+      <a href="#customers" data-page="customers">Customers</a>
+      <a href="#software" data-page="software">Software</a>
+      <span class="nav-label" data-admin hidden>Admin</span>
+      <a href="#payments" data-page="payments" data-admin hidden>Customer payments</a>
+      <a href="#payouts" data-page="payouts" data-admin hidden>Money split</a>
+      <a href="#team" data-page="team" data-admin hidden>Team accounts</a>
+    </nav>
+    <div class="me"><span><b id="meName">…</b> <span id="meRole"></span></span><button id="logout" type="button">Sign out</button></div>
+  </aside>
+  <main class="main" id="main" tabindex="-1"></main>
+</div>
+<div class="toast" id="toast" role="status" hidden></div>
+<script src="/js/app.js"></script>
+</body>
+</html>

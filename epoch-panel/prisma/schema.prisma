@@ -1,0 +1,135 @@
+// Epoch team panel database.
+// SQLite for local use. To move to PostgreSQL/MySQL later, change `provider`
+// and DATABASE_URL, then run `npx prisma db push`.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                 Int          @id @default(autoincrement())
+  username           String       @unique
+  name               String
+  title              String       @default("")
+  role               String       @default("MEMBER") // ADMIN | MEMBER
+  passwordHash       String
+  mustChangePassword Boolean      @default(true)
+  active             Boolean      @default(true)
+  createdAt          DateTime     @default(now())
+  sessions           Session[]
+  tasks              Task[]
+  assignments        Assignment[]
+  customers          Customer[]
+  paymentsRecorded   Payment[]
+  payouts            Payout[]
+}
+
+model Session {
+  id        String   @id // sha256 of the cookie token
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model Software {
+  id          Int          @id @default(autoincrement())
+  name        String       @unique
+  description String       @default("")
+  status      String       @default("READY") // READY | IN_DEVELOPMENT | PAUSED
+  createdAt   DateTime     @default(now())
+  assignments Assignment[]
+  customers   Customer[]
+}
+
+model Assignment {
+  id             Int      @id @default(autoincrement())
+  softwareId     Int
+  software       Software @relation(fields: [softwareId], references: [id], onDelete: Cascade)
+  userId         Int
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  responsibility String // Development | Design | Sales | Support | Video
+  createdAt      DateTime @default(now())
+
+  @@unique([softwareId, userId, responsibility])
+}
+
+model Task {
+  id         Int      @id @default(autoincrement())
+  title      String
+  phase      Int // 0 = current customers, 1-7 = plan phases
+  status     String   @default("TODO") // TODO | DOING | DONE
+  notes      String   @default("")
+  order      Float    @default(0)
+  assigneeId Int?
+  assignee   User?    @relation(fields: [assigneeId], references: [id], onDelete: SetNull)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Customer {
+  id          Int       @id @default(autoincrement())
+  name        String
+  contact     String    @default("")
+  phone       String    @default("")
+  type        String    @default("Other") // Shop | Restaurant | Salon | Clinic | Other
+  stage       String    @default("NEW") // NEW | CONTACTED | INTERESTED | QUOTED | FREE_TRIAL | ACTIVE | SOLD | LOST
+  softwareId  Int?
+  software    Software? @relation(fields: [softwareId], references: [id], onDelete: SetNull)
+  ownerId     Int?
+  owner       User?     @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  dealType    String    @default("SUBSCRIPTION") // SUBSCRIPTION | ONE_TIME
+  totalPrice  Int       @default(0) // full price for a one-time sale
+  monthlyFee  Int       @default(0)
+  startedAt   DateTime?
+  trialEnds   DateTime?
+  notes       String    @default("")
+  createdAt   DateTime  @default(now())
+  payments    Payment[]
+  payouts     Payout[]
+}
+
+// Money split out of what customers paid: to a team member (share, salary,
+// commission…) or, when userId is empty, into the Epoch company fund.
+model Payout {
+  id         Int       @id @default(autoincrement())
+  userId     Int? // null = Epoch company fund
+  user       User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount     Int
+  reason     String // e.g. "Share of City Medical Centre sale"
+  customerId Int?
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  method     String    @default("BANK") // CASH | BANK | CARD | OTHER
+  status     String    @default("PENDING") // PENDING | PAID
+  dueDate    DateTime?
+  paidAt     DateTime?
+  note       String    @default("")
+  createdAt  DateTime  @default(now())
+}
+
+model Payment {
+  id           Int       @id @default(autoincrement())
+  customerId   Int
+  customer     Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  kind         String    @default("MONTHLY") // SETUP | MONTHLY | INSTALLMENT | FULL | OTHER
+  amount       Int
+  period       String    @default("") // e.g. "Jan 2027"
+  method       String    @default("BANK") // CASH | BANK | CARD | OTHER
+  status       String    @default("PENDING") // PENDING | PAID
+  dueDate      DateTime?
+  paidAt       DateTime?
+  note         String    @default("")
+  recordedById Int?
+  recordedBy   User?     @relation(fields: [recordedById], references: [id], onDelete: SetNull)
+  createdAt    DateTime  @default(now())
+}
+
+model Setting {
+  key   String @id
+  value String
+}

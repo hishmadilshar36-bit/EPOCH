@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sign in · Epoch Panel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="/css/style.css">
+<link rel="icon" href="/favicon.png" type="image/png">
+</head>
+<body>
+<div class="login-wrap">
+  <form class="login" id="loginForm" novalidate>
+    <img class="login-logo" src="/img/epoch-logo-full.webp" width="1040" height="850" alt="Epoch: Empowering possibilities through technology">
+    <h1>Sign in to the team panel</h1>
+    <div class="error" id="err" hidden></div>
+    <label class="fld" for="username">Username<input id="username" name="username" autocomplete="username" autocapitalize="none" required></label>
+    <label class="fld" for="password">Password<input id="password" name="password" type="password" autocomplete="current-password" required></label>
+    <button class="btn primary" type="submit" id="go">Sign in</button>
+    <p class="muted" style="margin:0;font-size:12px">Forgot your password? Ask Hishma to reset it.</p>
+  </form>
+</div>
+<script>
+fetch("/api/me").then(r => { if (r.ok) location.replace("/app"); });
+document.getElementById("loginForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const err = document.getElementById("err"), go = document.getElementById("go");
+  err.hidden = true; go.disabled = true;
+  try {
+    const r = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json", "X-Epoch-Request": "1" },
+      body: JSON.stringify({ username: username.value, password: password.value }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || "Couldn't sign in.");
+    location.replace("/app");
+  } catch (x) { err.textContent = x.message; err.hidden = false; }
+  finally { go.disabled = false; }
+});
+</script>
+</body>
+</html>
