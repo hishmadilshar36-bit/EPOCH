@@ -166,7 +166,7 @@ function moneyLine(c) {
 const priceText = (c) => c.dealType === "ONE_TIME" ? (c.totalPrice ? `${money(c.totalPrice)} one-time` : "One-time") : c.monthlyFee ? `${money(c.monthlyFee)} / month` : "—";
 
 // ---------- task board ----------
-const TF = { person: "", hideDone: false };
+const TF = { person: "me", hideDone: false }; // admin can switch person; members always see their own
 function canEditTask(t) { return isAdmin() || t.assigneeId === S.me.id; }
 const nextStatus = (s) => ({ TODO: "DOING", DOING: "DONE", DONE: "TODO" })[s];
 
@@ -178,11 +178,11 @@ function taskRow(t, plan, { compact = false } = {}) {
     h("button", { class: "stbtn", "data-s": t.status, disabled: !can, title: can ? `${TSTATUS[t.status]} · click for ${TSTATUS[nextStatus(t.status)]}` : TSTATUS[t.status], "aria-label": `${t.title}: ${TSTATUS[t.status]}`,
       onclick: () => act(() => api(`/tasks/${t.id}`, { method: "PATCH", body: { status: nextStatus(t.status) } })) }),
     h("div", { class: "ttitle" }, t.title, compact && phase ? h("small", {}, phase.ongoing ? phase.title : `Days ${phase.from}–${phase.to} · ${phase.title}`) : t.status === "DOING" ? h("small", { style: "color:var(--warn)" }, "In progress" + (t.notes ? " · " + t.notes : "")) : t.notes ? h("small", {}, t.notes) : null),
-    h("span", { class: "chip" + (t.assigneeId === S.me.id ? " mine" : "") }, t.assignee?.name || "Unassigned"),
+    h("span", { class: "chip" + (t.assigneeId === S.me.id ? " mine" : "") }, t.assignee?.name || "Whole team"),
     compact ? h("span") : h("button", { class: "more", "aria-expanded": String(open), "aria-label": "Details for " + t.title, onclick: () => { S.open = open ? null : "t" + t.id; route(); } }, open ? "▴" : "▾")));
   if (open && !compact) {
     const title = h("input", { value: t.title, disabled: !isAdmin() });
-    const assignee = h("select", { disabled: !isAdmin() }, userOptions(t.assigneeId));
+    const assignee = h("select", { disabled: !isAdmin() }, userOptions(t.assigneeId, { none: "Whole team" }));
     const phaseSel = h("select", { disabled: !isAdmin() }, plan.phases.map((p) => h("option", { value: p.n, selected: p.n === t.phase }, p.ongoing ? p.title : `Days ${p.from}–${p.to}: ${p.title}`)));
     const status = h("select", { disabled: !can }, options(TSTATUS, t.status));
     const notes = h("textarea", { disabled: !can, placeholder: "Links, progress, who you spoke to…" }, t.notes);
@@ -211,14 +211,22 @@ async function pageTasks() {
   const track = h("div", { class: "track", "aria-hidden": "true" });
   for (let d = 1; d <= 30; d++) track.append(h("i", { class: dn != null && d < dn ? "past" : d === dn ? "today" : "", title: "Day " + d }));
   root.append(track);
-  const person = h("select", { class: "inp", style: "width:auto", "aria-label": "Show tasks for", onchange: (e) => { TF.person = e.target.value; route(); } },
-    h("option", { value: "" }, "Everyone"), h("option", { value: "me", selected: TF.person === "me" }, "Only mine"), S.users.map((u) => h("option", { value: String(u.id), selected: TF.person === String(u.id) }, u.name)), h("option", { value: "none", selected: TF.person === "none" }, "Unassigned"));
-  person.value = TF.person;
+  if (!isAdmin()) TF.person = "me";
+  let person = null;
+  if (isAdmin()) {
+    person = h("select", { class: "inp", style: "width:auto", "aria-label": "Show tasks for", onchange: (e) => { TF.person = e.target.value; route(); } },
+      h("option", { value: "me" }, "My tasks"), h("option", { value: "" }, "Everyone"),
+      S.users.filter((u) => u.id !== S.me.id).map((u) => h("option", { value: String(u.id) }, `${u.name}'s tasks`)), h("option", { value: "none" }, "Whole-team tasks"));
+    person.value = TF.person;
+  }
+  const who = TF.person === "me" ? "you" : TF.person === "" ? "everyone" : TF.person === "none" ? "the whole team" : S.users.find((u) => String(u.id) === TF.person)?.name || "";
   root.append(h("div", { class: "actions", style: "justify-content:flex-start" }, person,
+    h("span", { class: "muted", style: "font-size:13px" }, `Showing tasks for ${who}${TF.person === "me" || (TF.person && TF.person !== "none") ? " and whole-team tasks" : ""}.`),
     h("label", { style: "display:flex;gap:6px;align-items:center;color:var(--muted)" }, h("input", { type: "checkbox", checked: TF.hideDone, onchange: (e) => { TF.hideDone = e.target.checked; route(); } }), "Hide done")));
-  const match = (t) => (!TF.person || (TF.person === "me" ? t.assigneeId === S.me.id : TF.person === "none" ? !t.assigneeId : String(t.assigneeId) === TF.person)) && (!TF.hideDone || t.status !== "DONE");
+  const forPerson = (t) => !TF.person || (TF.person === "none" ? !t.assigneeId : !t.assigneeId || (TF.person === "me" ? t.assigneeId === S.me.id : String(t.assigneeId) === TF.person));
+  const match = (t) => forPerson(t) && (!TF.hideDone || t.status !== "DONE");
   for (const p of plan.phases) {
-    const all = tasks.filter((t) => t.phase === p.n), done = all.filter((t) => t.status === "DONE").length, shown = all.filter(match);
+    const all = tasks.filter((t) => t.phase === p.n && forPerson(t)), done = all.filter((t) => t.status === "DONE").length, shown = all.filter(match);
     let st = "next", lbl = "Upcoming";
     if (all.length && done === all.length) { st = "done"; lbl = "Complete"; }
     else if (p.ongoing) { st = "now"; lbl = "Now"; }
@@ -229,12 +237,13 @@ async function pageTasks() {
         h("div", { class: "ph-days" }, h("b", {}, p.ongoing ? "Ongoing" : `Days ${p.from}–${p.to}`), phaseDates(p, plan.start)),
         h("div", {}, h("h2", {}, p.title, h("span", { class: "pill " + st }, lbl)), h("div", { class: "ph-target" }, h("strong", {}, "Target: "), p.target), p.note ? h("div", { class: "ph-target" }, p.note) : null),
         h("div", { class: "mono", style: "text-align:right" }, `${done}/${all.length}`, h("div", { class: "muted", style: "font-size:12px" }, "done"))));
-    sec.append(shown.length ? h("ul", { class: "tasks" }, shown.map((t) => taskRow(t, plan))) : h("div", { class: "empty", style: "border-top:1px solid var(--line)" }, all.length ? "No tasks match this filter." : "No tasks yet."));
+    sec.append(shown.length ? h("ul", { class: "tasks" }, shown.map((t) => taskRow(t, plan))) : h("div", { class: "empty", style: "border-top:1px solid var(--line)" }, all.length ? "All done here." : TF.person === "me" ? "No tasks for you in this phase." : "No tasks here."));
     const title = h("input", { class: "inp", placeholder: isAdmin() ? `Add a task to ${p.title.toLowerCase()}` : "Add a task for yourself", "aria-label": "New task" });
-    const who = isAdmin() ? h("select", { class: "inp", "aria-label": "Assign to" }, userOptions(TF.person && !["me", "none"].includes(TF.person) ? Number(TF.person) : null)) : h("span");
-    const add = () => { if (!title.value.trim()) return title.focus(); act(() => api("/tasks", { method: "POST", body: { title: title.value, phase: p.n, assigneeId: isAdmin() ? numOrNull(who.value) : S.me.id } }), "Task added"); };
+    const defaultAssignee = TF.person === "me" ? S.me.id : TF.person && TF.person !== "none" ? Number(TF.person) : null;
+    const assignSel = isAdmin() ? h("select", { class: "inp", "aria-label": "Assign to" }, userOptions(defaultAssignee, { none: "Whole team" })) : h("span");
+    const add = () => { if (!title.value.trim()) return title.focus(); act(() => api("/tasks", { method: "POST", body: { title: title.value, phase: p.n, assigneeId: isAdmin() ? numOrNull(assignSel.value) : S.me.id } }), "Task added"); };
     title.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); add(); } });
-    sec.append(h("div", { class: "addrow" }, title, who, h("button", { class: "btn primary", onclick: add }, "Add")));
+    sec.append(h("div", { class: "addrow" }, title, assignSel, h("button", { class: "btn primary", onclick: add }, "Add")));
     root.append(sec);
   }
   return root;

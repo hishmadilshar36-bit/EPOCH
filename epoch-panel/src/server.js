@@ -234,8 +234,10 @@ api.patch("/plan", requireAdmin, wrap(async (req, res) => {
 }));
 
 const taskInclude = { assignee: { select: { id: true, name: true } } };
+// Members get only their own tasks plus whole-team (unassigned) ones; the admin gets everything.
 api.get("/tasks", wrap(async (req, res) => {
-  res.json(await prisma.task.findMany({ include: taskInclude, orderBy: [{ phase: "asc" }, { order: "asc" }, { id: "asc" }] }));
+  const where = req.user.role === "ADMIN" ? {} : { OR: [{ assigneeId: req.user.id }, { assigneeId: null }] };
+  res.json(await prisma.task.findMany({ where, include: taskInclude, orderBy: [{ phase: "asc" }, { order: "asc" }, { id: "asc" }] }));
 }));
 
 api.post("/tasks", wrap(async (req, res) => {
