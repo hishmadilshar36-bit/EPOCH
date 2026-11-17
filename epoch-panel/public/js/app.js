@@ -116,6 +116,7 @@ async function pageDashboard() {
   const dn = dayNum(plan.start);
   const dayTxt = dn == null ? "Plan start date not set" : dn < 1 ? `The 30-day plan starts in ${1 - dn} day${1 - dn === 1 ? "" : "s"} (${fmtDate(plan.start)})` : dn > 30 ? "The 30-day plan is finished" : `Day ${dn} of the 30-day plan`;
   const root = h("div", { class: "stack" }, head(`Hello, ${S.me.name}`, dayTxt));
+  if (plan.company) root.append(anniversaryCard(plan.company));
   root.append(...trialAlerts(sum.trials));
   if (sum.money) root.append(moneyKpis(sum.money));
   const pct = sum.tasks.total ? Math.round((sum.tasks.done / sum.tasks.total) * 100) : 0;
@@ -131,6 +132,25 @@ async function pageDashboard() {
     h("div", { class: "grid", style: "grid-template-columns:repeat(auto-fit,minmax(110px,1fr));padding:12px" },
       Object.entries(sum.pipeline).map(([k, v]) => h("div", { class: "kpi card" }, h("div", { class: "v mono" }, String(v)), h("div", { class: "l" }, STAGE[k]))))));
   return root;
+}
+// Company age and next anniversary, from the opening date (YYYY-MM-DD)
+function anniversaryInfo(openedOn) {
+  const [y, m, d] = openedOn.split("-").map(Number), today = todayUTC(), now = new Date(today);
+  let next = Date.UTC(now.getUTCFullYear(), m - 1, d);
+  if (next < today) next = Date.UTC(now.getUTCFullYear() + 1, m - 1, d);
+  const nextYear = new Date(next).getUTCFullYear();
+  let months = (now.getUTCFullYear() - y) * 12 + (now.getUTCMonth() - (m - 1));
+  if (now.getUTCDate() < d) months--;
+  return { years: Math.floor(months / 12), months: months % 12, next, number: nextYear - y, daysLeft: Math.round((next - today) / 864e5) };
+}
+const ordinal = (n) => n + (["th", "st", "nd", "rd"][(n % 100 - 20) % 10] || ["th", "st", "nd", "rd"][n % 100] || "th");
+function anniversaryCard(company) {
+  const a = anniversaryInfo(company.openedOn);
+  const age = [a.years ? `${a.years} year${a.years === 1 ? "" : "s"}` : "", a.months ? `${a.months} month${a.months === 1 ? "" : "s"}` : ""].filter(Boolean).join(" ") || "less than a month";
+  const nextTxt = a.daysLeft === 0 ? `Today is Epoch's ${ordinal(a.number)} anniversary. Happy anniversary!` : `${ordinal(a.number)} anniversary on ${fmtDate(new Date(a.next).toISOString())}, in ${a.daysLeft} day${a.daysLeft === 1 ? "" : "s"}`;
+  return h("div", { class: "card card-body anniv" + (a.daysLeft === 0 ? " today" : "") },
+    h("div", {}, h("b", {}, `${company.name} opened on ${fmtDate(company.openedOn)}`), h("div", { class: "muted" }, `${age} in business`)),
+    h("div", { class: "anniv-next mono" }, nextTxt));
 }
 const kpi = (v, l) => h("div", { class: "card kpi" }, h("div", { class: "v mono" }, v), h("div", { class: "l" }, l));
 const moneyKpis = (m) => h("div", { class: "grid g4" },

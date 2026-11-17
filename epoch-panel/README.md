@@ -1,5 +1,7 @@
 # Epoch Panel
 
+Epoch opened on 2 February 2025. The opening date lives in `COMPANY` at the top of `src/server.js`; the dashboard shows the company's age and counts down to each anniversary.
+
 Team panel for Epoch: admin panel, team member panel, software assignments, customers, payments and the 30-day task board.
 
 - **Frontend:** plain HTML, CSS and JavaScript (`public/`)

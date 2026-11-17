@@ -41,6 +41,10 @@ button{cursor:pointer}
 .nav a{color:var(--side-fg);text-decoration:none;padding:8px 10px;border-radius:7px;font-weight:500;display:flex;justify-content:space-between;align-items:center;gap:6px}
 .nav a:hover{background:var(--side-active)}
 .nav a[aria-current="page"]{background:var(--side-active);color:#fff}
+.anniv{display:flex;justify-content:space-between;align-items:center;gap:8px 16px;flex-wrap:wrap;border-left:4px solid var(--accent)}
+.anniv b{font-family:var(--f-display);font-size:16px}
+.anniv-next{font-size:13px;color:var(--accent)}
+.anniv.today{background:var(--accent-soft)}
 .nav-label{font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--side-fg);opacity:.6;padding:12px 10px 4px}
 .nav-label:first-child{padding-top:0}
 .money-line{display:flex;gap:2px 14px;flex-wrap:wrap;font-size:12px}

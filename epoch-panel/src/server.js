@@ -22,6 +22,8 @@ const PORT = Number(process.env.PORT) || 3000;
 const SESSION_DAYS = 7;
 const COOKIE = "epoch_sid";
 
+const COMPANY = { name: "Epoch", openedOn: "2025-02-02" }; // company opening date / anniversary
+
 const PHASES = [
   { n: 0, title: "Current customers", target: "Collect the remaining balance for City Medical Centre's system and keep the clinic happy.", ongoing: true },
   { n: 1, from: 1, to: 3, title: "Business foundation", target: "Epoch business identity ready." },
@@ -222,7 +224,7 @@ async function planStart() {
   const s = await prisma.setting.findUnique({ where: { key: "planStart" } });
   return s ? s.value : null;
 }
-api.get("/plan", wrap(async (req, res) => res.json({ start: await planStart(), phases: PHASES })));
+api.get("/plan", wrap(async (req, res) => res.json({ start: await planStart(), phases: PHASES, company: COMPANY })));
 api.patch("/plan", requireAdmin, wrap(async (req, res) => {
   const d = date(req.body?.start, "Start date");
   if (!d) throw new HttpError(400, "Start date is required.");
