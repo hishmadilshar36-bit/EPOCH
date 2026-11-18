@@ -311,7 +311,7 @@ async function pageCustomers() {
   return root;
 }
 
-// ---------- customer emails (sent through Resend by the send-email Edge Function) ----------
+// ---------- customer emails (sent from Epoch's Gmail by the send-email Edge Function) ----------
 const SIGNOFF = () => `Kind regards,\n${S.me.name}\nEpoch · Empowering possibilities through technology`;
 function emailTemplate(kind, c, plans) {
   const hi = `Dear ${c.contact || c.name},`;
@@ -350,7 +350,7 @@ async function emailComposer(c, plans) {
   const fill = () => { const [s, m] = emailTemplate(tpl.value, c, plans); subject.value = s; message.value = m; };
   tpl.onchange = fill; fill();
   const left = quota ? quota.left : null;
-  const status = quota && !quota.ready ? h("div", { class: "error" }, "Email isn't set up yet: the Resend API key still needs adding in Supabase.")
+  const status = quota && !quota.ready ? h("div", { class: "error" }, "Email isn't set up yet: the Gmail App Password still needs adding in Supabase (Edge Functions → Secrets → GMAIL_APP_PASSWORD).")
     : h("div", { class: "muted", style: "font-size:13px" }, left == null ? "" : `${left} of ${quota.limit} emails left today.`);
   const send = h("button", { class: "btn primary small", type: "submit", disabled: left === 0 || (quota && !quota.ready) }, "Send email");
   box.append(h("form", { class: "form", onsubmit: async (ev) => {

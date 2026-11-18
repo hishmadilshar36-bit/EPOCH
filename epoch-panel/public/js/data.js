@@ -212,7 +212,7 @@ async function api(path, { method = "GET", body } = {}) {
   }
   if (path === "/me/payouts") return q(sb.from("payouts").select(SEL.payout).eq("user_id", ME.id).order("created_at", { ascending: false }));
 
-  // customer emails (sent by the send-email Edge Function through Resend)
+  // customer emails (sent by the send-email Edge Function from Epoch's Gmail)
   if (path === "/emails/quota") return callFn("send-email", { action: "quota" });
   if (path === "/emails/send") return callFn("send-email", body);
   if ((x = m(/^\/emails\?customer=(\d+)$/)))

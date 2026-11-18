@@ -38,11 +38,11 @@ These rules are Row Level Security policies and database functions in Supabase, 
 
 On **Customers**, each customer has an **Email** button: pick a template (introduction, quotation, payment reminder, receipt, welcome or blank), edit it, and send. Every email is logged and shown under that customer.
 
-- Sent by the Supabase Edge Function `send-email` (`supabase/functions/send-email/index.ts`) through **Resend**.
+- Sent by the Supabase Edge Function `send-email` (`supabase/functions/send-email/index.ts`) from Epoch's **Gmail** account over SMTP (port 465). Gmail keeps a copy in its Sent folder.
 - Only to the email address saved on the customer, and at most **5 emails a day** for the whole team (Sri Lanka time).
-- Settings live in the `settings` table: `emailFrom`, `emailReplyTo` (customers' replies go here), `emailDailyLimit`.
-- The Resend API key is the Supabase secret `RESEND_API_KEY` (Edge Functions → Secrets). Never put it in this repository.
-- Until a domain is verified in Resend, Resend only delivers to the Resend account's own address. After verifying a domain, set `emailFrom` to e.g. `Epoch <hello@yourdomain>`.
+- Settings live in the `settings` table: `emailGmailUser` (the Gmail address that sends), `emailFrom`, `emailReplyTo` (customers' replies go here), `emailDailyLimit`.
+- The Gmail **App Password** is the Supabase secret `GMAIL_APP_PASSWORD` (Edge Functions → Secrets). It needs 2-Step Verification on the Gmail account. Never put it in this repository.
+- Later, with your own domain, this can move to a service like Resend so emails come from e.g. `hello@yourdomain`.
 
 ## Run the pages on this computer
 

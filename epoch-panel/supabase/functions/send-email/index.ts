@@ -1,11 +1,13 @@
-// Epoch panel: send an email to a customer through Resend.
+// Epoch panel: send an email to a customer from Epoch's Gmail account.
 // - Only signed-in, active team members can send.
 // - Only to the email address saved on the customer (no free-typed addresses).
 // - At most `emailDailyLimit` emails per day (Sri Lanka time), default 5.
 // - Every attempt is logged in public.emails.
-// Needs the Supabase secret RESEND_API_KEY (Edge Functions → Secrets).
+// Needs the Supabase secret GMAIL_APP_PASSWORD (Edge Functions → Secrets): a Gmail App Password,
+// not the normal Gmail password. Uses Gmail SMTP on port 465 (Supabase blocks 25 and 587).
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
+import nodemailer from "npm:nodemailer@6.9.16";
 
 const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
   auth: { persistSession: false, autoRefreshToken: false },
@@ -49,17 +51,18 @@ Deno.serve(async (req) => {
   let body: Record<string, unknown>;
   try { body = await req.json(); } catch { return fail(400, "Request body isn't valid JSON."); }
 
-  const { data: settingRows } = await db.from("settings").select("key,value").in("key", ["emailFrom", "emailReplyTo", "emailDailyLimit"]);
+  const { data: settingRows } = await db.from("settings").select("key,value").in("key", ["emailFrom", "emailReplyTo", "emailDailyLimit", "emailGmailUser"]);
   const settings = Object.fromEntries((settingRows || []).map((r) => [r.key, r.value]));
   const limit = Math.max(0, Number(settings.emailDailyLimit ?? 5) || 0);
   const { count: sentToday } = await db.from("emails").select("id", { count: "exact", head: true })
     .eq("status", "SENT").gte("created_at", startOfColomboDay());
   const used = sentToday ?? 0;
 
-  if (body.action === "quota") return reply(200, { limit, used, left: Math.max(0, limit - used), ready: !!Deno.env.get("RESEND_API_KEY") });
+  const gmailUser = settings.emailGmailUser || "";
+  const appPassword = (Deno.env.get("GMAIL_APP_PASSWORD") || "").replace(/\s+/g, "");
+  if (body.action === "quota") return reply(200, { limit, used, left: Math.max(0, limit - used), ready: !!(appPassword && gmailUser) });
 
-  const apiKey = Deno.env.get("RESEND_API_KEY");
-  if (!apiKey) return fail(503, "Email isn't set up yet. Add the Resend API key in Supabase (Edge Functions → Secrets → RESEND_API_KEY).");
+  if (!appPassword || !gmailUser) return fail(503, "Email isn't set up yet. Add the Gmail App Password in Supabase (Edge Functions → Secrets → GMAIL_APP_PASSWORD).");
   if (used >= limit) return fail(429, `Today's limit of ${limit} emails is used up. Try again tomorrow.`, { limit, used, left: 0 });
 
   const customerId = Number(body.customerId);
@@ -74,32 +77,30 @@ Deno.serve(async (req) => {
   if (!customer) return fail(404, "That customer doesn't exist.");
   if (!customer.email) return fail(400, "Add an email address to this customer first.");
 
-  const payload: Record<string, unknown> = {
-    from: settings.emailFrom || "Epoch <onboarding@resend.dev>",
-    to: [customer.email],
-    subject,
-    text: message,
-    html: htmlBody(message),
-  };
-  if (settings.emailReplyTo) payload.reply_to = settings.emailReplyTo;
-
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  const out = await res.json().catch(() => ({}));
-  const ok = res.ok && out?.id;
+  let messageId: string | null = null, error: string | null = null;
+  try {
+    const transport = nodemailer.createTransport({ host: "smtp.gmail.com", port: 465, secure: true, auth: { user: gmailUser, pass: appPassword } });
+    const info = await transport.sendMail({
+      from: settings.emailFrom || `Epoch <${gmailUser}>`,
+      to: customer.email,
+      replyTo: settings.emailReplyTo || gmailUser,
+      subject,
+      text: message,
+      html: htmlBody(message),
+    });
+    messageId = info?.messageId || "sent";
+  } catch (e) {
+    error = String((e as Error)?.message || e).slice(0, 500);
+  }
   await db.from("emails").insert({
     customer_id: customer.id, to_email: customer.email, subject, body: message, template, sent_by: me.id,
-    status: ok ? "SENT" : "FAILED", provider_id: ok ? out.id : null, error: ok ? null : String(out?.message || res.statusText).slice(0, 500),
+    status: messageId ? "SENT" : "FAILED", provider_id: messageId, error,
   });
-  if (!ok) {
-    const why = String(out?.message || "");
-    const hint = /domain|testing emails|own email/i.test(why)
-      ? " Resend only delivers to other people once you verify your own domain in Resend."
+  if (!messageId) {
+    const hint = /auth|535|534|password|credentials/i.test(error || "")
+      ? " Gmail refused the sign-in: check GMAIL_APP_PASSWORD is a Gmail App Password and 2-Step Verification is on."
       : "";
-    return fail(502, `Resend didn't send it: ${why || res.statusText}.${hint}`);
+    return fail(502, `Gmail didn't send it: ${error}.${hint}`);
   }
-  return reply(200, { ok: true, id: out.id, limit, used: used + 1, left: Math.max(0, limit - used - 1) });
+  return reply(200, { ok: true, id: messageId, limit, used: used + 1, left: Math.max(0, limit - used - 1) });
 });
