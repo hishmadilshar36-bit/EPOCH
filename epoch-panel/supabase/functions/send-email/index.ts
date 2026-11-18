@@ -3,6 +3,7 @@
 // - Only to the email address saved on the customer (no free-typed addresses).
 // - Optional daily cap: set `emailDailyLimit` in settings (Sri Lanka time). No setting = no limit
 //   (Gmail itself allows about 500 a day).
+// - Plain text only (no HTML).
 // - Every attempt is logged in public.emails.
 // Needs the Supabase secret GMAIL_APP_PASSWORD (Edge Functions → Secrets): a Gmail App Password,
 // not the normal Gmail password. Uses Gmail SMTP on port 465 (Supabase blocks 25 and 587).
@@ -29,16 +30,6 @@ function startOfColomboDay(): string {
   const midnight = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate()) - offset;
   return new Date(midnight).toISOString();
 }
-const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
-function htmlBody(text: string): string {
-  const paras = esc(text).split(/\n{2,}/).map((p) => `<p style="margin:0 0 14px">${p.replace(/\n/g, "<br>")}</p>`).join("");
-  return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#15191f;max-width:600px">
-${paras}
-<hr style="border:0;border-top:1px solid #d8dde6;margin:22px 0 10px">
-<p style="margin:0;font-size:12px;color:#5a616d"><b style="color:#0d47a1;letter-spacing:.08em">EPOCH</b> · Empowering possibilities through technology</p>
-</div>`;
-}
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return fail(405, "Use POST.");
@@ -86,8 +77,7 @@ Deno.serve(async (req) => {
       to: customer.email,
       replyTo: settings.emailReplyTo || gmailUser,
       subject,
-      text: message,
-      html: htmlBody(message),
+      text: message, // plain text only (no HTML): friendlier to spam filters
     });
     messageId = info?.messageId || "sent";
   } catch (e) {
