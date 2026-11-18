@@ -262,7 +262,7 @@ async function pageCustomers() {
   const root = h("div", { class: "stack" }, head("Customers", "Leads, free trials and paying subscribers"));
   root.append(...trialAlerts(customers.filter((c) => c.stage === "FREE_TRIAL")));
 
-  const f = { name: h("input", { placeholder: "e.g. Green Leaf Café" }), contact: h("input", { placeholder: "Owner or manager" }), phone: h("input", { placeholder: "Phone / WhatsApp" }),
+  const f = { name: h("input", { placeholder: "e.g. Green Leaf Café" }), contact: h("input", { placeholder: "Owner or manager" }), phone: h("input", { placeholder: "Phone / WhatsApp" }), email: h("input", { type: "email", placeholder: "name@business.lk" }),
     type: h("select", {}, typeOpts("Shop")), softwareId: h("select", {}, swOptions(null)), ownerId: h("select", {}, userOptions(S.users.find((u) => u.username === "hansa")?.id ?? S.me.id)), stage: h("select", {}, options(STAGE, "NEW")),
     dealType: h("select", {}, options(DEAL, "SUBSCRIPTION")), price: h("input", { type: "number", min: "0", step: "1000", placeholder: "0" }), planId: h("select", {}, planOptions(null)) };
   const priceLabel = h("span", {}, "Monthly fee (Rs.)");
@@ -270,34 +270,37 @@ async function pageCustomers() {
   f.planId.onchange = () => { const p = plans.find((x) => x.id === Number(f.planId.value)); if (p) { f.dealType.value = "SUBSCRIPTION"; f.dealType.onchange(); f.price.value = p.monthlyPrice; } };
   const addForm = h("form", { class: "card card-body form", onsubmit: (e) => { e.preventDefault(); if (!f.name.value.trim()) return f.name.focus();
     const price = Number(f.price.value) || 0, oneTime = f.dealType.value === "ONE_TIME";
-    act(() => api("/customers", { method: "POST", body: { name: f.name.value, contact: f.contact.value, phone: f.phone.value, type: f.type.value, softwareId: numOrNull(f.softwareId.value), ownerId: numOrNull(f.ownerId.value), stage: f.stage.value, dealType: f.dealType.value, totalPrice: oneTime ? price : 0, monthlyFee: oneTime ? 0 : price, planId: numOrNull(f.planId.value) } }), "Customer added"); } },
-    field("Business name", f.name), field("Contact person", f.contact), field("Phone", f.phone), field("Type", f.type), field("Software", f.softwareId), field("Handled by", f.ownerId), field("Stage", f.stage),
+    act(() => api("/customers", { method: "POST", body: { name: f.name.value, contact: f.contact.value, phone: f.phone.value, email: f.email.value, type: f.type.value, softwareId: numOrNull(f.softwareId.value), ownerId: numOrNull(f.ownerId.value), stage: f.stage.value, dealType: f.dealType.value, totalPrice: oneTime ? price : 0, monthlyFee: oneTime ? 0 : price, planId: numOrNull(f.planId.value) } }), "Customer added"); } },
+    field("Business name", f.name), field("Contact person", f.contact), field("Phone", f.phone), field("Email", f.email), field("Type", f.type), field("Software", f.softwareId), field("Handled by", f.ownerId), field("Stage", f.stage),
     field("Subscription plan", f.planId), field("Deal", f.dealType), field(priceLabel, f.price),
     h("button", { class: "btn primary", type: "submit" }, "Add customer"));
   root.append(addForm);
 
   const tbody = h("tbody");
   for (const c of customers) {
-    const open = S.open === "c" + c.id;
+    const open = S.open === "c" + c.id, mailOpen = S.open === "m" + c.id;
     tbody.append(h("tr", {},
-      h("td", {}, h("b", {}, c.name), h("div", { class: "muted", style: "font-size:12px" }, [c.type, c.contact, c.phone].filter(Boolean).join(" · "))),
+      h("td", {}, h("b", {}, c.name), h("div", { class: "muted", style: "font-size:12px" }, [c.type, c.contact, c.phone, c.email].filter(Boolean).join(" · "))),
       h("td", {}, c.software?.name || "—"),
       h("td", {}, h("span", { class: "pill " + c.stage }, STAGE[c.stage])),
       h("td", {}, c.owner?.name || "—"),
       h("td", {}, h("div", { class: "mono" }, priceText(c)), moneyLine(c)),
       h("td", {}, c.stage === "FREE_TRIAL" && c.trialEnds ? `Free until ${fmtDate(c.trialEnds)}` : c.startedAt ? `Since ${fmtDate(c.startedAt)}` : ""),
-      h("td", {}, h("button", { class: "btn small", onclick: () => { S.open = open ? null : "c" + c.id; route(); } }, open ? "Close" : "Edit"))));
+      h("td", {}, h("div", { class: "actions", style: "flex-wrap:nowrap" },
+        h("button", { class: "btn small", onclick: () => { S.open = mailOpen ? null : "m" + c.id; route(); } }, mailOpen ? "Close" : "Email"),
+        h("button", { class: "btn small", onclick: () => { S.open = open ? null : "c" + c.id; route(); } }, open ? "Close" : "Edit")))));
+    if (mailOpen) tbody.append(h("tr", {}, h("td", { colspan: "7", style: "background:var(--surface-2)" }, await emailComposer(c, plans))));
     if (open) {
-      const e = { name: h("input", { value: c.name }), contact: h("input", { value: c.contact }), phone: h("input", { value: c.phone }), type: h("select", {}, typeOpts(c.type)),
+      const e = { name: h("input", { value: c.name }), contact: h("input", { value: c.contact }), phone: h("input", { value: c.phone }), email: h("input", { type: "email", value: c.email || "" }), type: h("select", {}, typeOpts(c.type)),
         softwareId: h("select", {}, swOptions(c.softwareId)), ownerId: h("select", {}, userOptions(c.ownerId)), stage: h("select", {}, options(STAGE, c.stage)),
         planId: h("select", {}, planOptions(c.planId)),
         dealType: h("select", {}, options(DEAL, c.dealType)), totalPrice: h("input", { type: "number", min: "0", step: "1000", value: c.totalPrice }),
         monthlyFee: h("input", { type: "number", min: "0", step: "100", value: c.monthlyFee }), startedAt: h("input", { type: "date", value: ymd(c.startedAt) }), trialEnds: h("input", { type: "date", value: ymd(c.trialEnds) }),
         notes: h("textarea", {}, c.notes) };
       e.planId.onchange = () => { const p = plans.find((x) => x.id === Number(e.planId.value)); if (p) { e.dealType.value = "SUBSCRIPTION"; e.monthlyFee.value = p.monthlyPrice; } };
-      const save = () => act(() => api(`/customers/${c.id}`, { method: "PATCH", body: { name: e.name.value, contact: e.contact.value, phone: e.phone.value, type: e.type.value, softwareId: numOrNull(e.softwareId.value), ownerId: numOrNull(e.ownerId.value), stage: e.stage.value, planId: numOrNull(e.planId.value), dealType: e.dealType.value, totalPrice: Number(e.totalPrice.value) || 0, monthlyFee: Number(e.monthlyFee.value) || 0, startedAt: e.startedAt.value, trialEnds: e.trialEnds.value, notes: e.notes.value } }), "Customer saved");
+      const save = () => act(() => api(`/customers/${c.id}`, { method: "PATCH", body: { name: e.name.value, contact: e.contact.value, phone: e.phone.value, email: e.email.value, type: e.type.value, softwareId: numOrNull(e.softwareId.value), ownerId: numOrNull(e.ownerId.value), stage: e.stage.value, planId: numOrNull(e.planId.value), dealType: e.dealType.value, totalPrice: Number(e.totalPrice.value) || 0, monthlyFee: Number(e.monthlyFee.value) || 0, startedAt: e.startedAt.value, trialEnds: e.trialEnds.value, notes: e.notes.value } }), "Customer saved");
       tbody.append(h("tr", {}, h("td", { colspan: "7", style: "background:var(--surface-2)" }, h("div", { class: "form" },
-        field("Business name", e.name), field("Contact person", e.contact), field("Phone", e.phone), field("Type", e.type), field("Software", e.softwareId), field("Handled by", e.ownerId), field("Stage", e.stage),
+        field("Business name", e.name), field("Contact person", e.contact), field("Phone", e.phone), field("Email", e.email), field("Type", e.type), field("Software", e.softwareId), field("Handled by", e.ownerId), field("Stage", e.stage),
         field("Subscription plan", e.planId), field("Deal", e.dealType), field("Full price (one-time, Rs.)", e.totalPrice), field("Monthly fee (subscription, Rs.)", e.monthlyFee), field("Customer since", e.startedAt), field("Free period ends", e.trialEnds), field("Notes", e.notes, "full"),
         h("div", { class: "actions full" }, isAdmin() ? confirmBtn("Delete customer", () => act(() => api(`/customers/${c.id}`, { method: "DELETE" }), "Customer deleted")) : null, h("button", { class: "btn primary small", onclick: save }, "Save"))))));
     }
@@ -306,6 +309,69 @@ async function pageCustomers() {
     customers.length ? h("div", { class: "table-wrap" }, h("table", {}, h("thead", {}, h("tr", {}, ["Business", "Software", "Stage", "Handled by", "Price", "Dates", ""].map((x) => h("th", {}, x)))), tbody))
       : h("div", { class: "empty" }, "No customers yet. Add the first one above.")));
   return root;
+}
+
+// ---------- customer emails (sent through Resend by the send-email Edge Function) ----------
+const SIGNOFF = () => `Kind regards,\n${S.me.name}\nEpoch · Empowering possibilities through technology`;
+function emailTemplate(kind, c, plans) {
+  const hi = `Dear ${c.contact || c.name},`;
+  const plan = plans.find((p) => p.id === c.planId) || plans.find((p) => p.active);
+  const due = c.money?.pending ? money(c.money.pending) : "Rs. [amount]";
+  const T = {
+    intro: [`Epoch: a website for ${c.name}`,
+      `${hi}\n\nThank you for speaking with us. Epoch builds websites and software for local businesses: business and restaurant websites, online stores, Smart POS billing and clinic management systems.\n\nWe would be happy to show you a demo and suggest what would work best for ${c.name}. Just reply to this email with a good time to talk.\n\n${SIGNOFF()}`],
+    quote: [`Epoch quotation for ${c.name}`,
+      `${hi}\n\nThank you for your interest. Here is our proposal:\n\n` +
+      (plan ? `Plan: ${plan.name}\nMonthly: ${money(plan.monthlyPrice)}${plan.annualPrice ? `\nYearly: ${money(plan.annualPrice)}` : ""}${plan.setupFee ? `\nOne-time setup: ${money(plan.setupFee)}` : ""}` +
+        (plan.includes ? `\n\nIncluded:\n${plan.includes.split("\n").filter(Boolean).map((l) => "- " + l.trim()).join("\n")}` : "")
+        : `Plan: [plan name]\nMonthly: Rs. [amount]\nOne-time setup: Rs. [amount]`) +
+      `\n\nReply to this email to go ahead or ask any questions.\n\n${SIGNOFF()}`],
+    reminder: [`Payment reminder: ${c.name}`,
+      `${hi}\n\nThis is a friendly reminder that ${due} is still due for ${c.software?.name || "your system"}.\n\nIf you have already paid, please ignore this message, and thank you. If you have any questions, just reply to this email.\n\n${SIGNOFF()}`],
+    receipt: [`Payment received: thank you`,
+      `${hi}\n\nWe have received your payment of Rs. [amount] for ${c.software?.name || "your system"}. Thank you.\n\n${SIGNOFF()}`],
+    welcome: [`Welcome to Epoch, ${c.name}`,
+      `${hi}\n\nWelcome to Epoch, and thank you for choosing us. We are getting started on your project and will keep you updated.\n\nIf you need anything, just reply to this email.\n\n${SIGNOFF()}`],
+    blank: ["", `${hi}\n\n\n\n${SIGNOFF()}`],
+  };
+  return T[kind];
+}
+const EMAIL_TEMPLATES = { intro: "Introduction", quote: "Quotation", reminder: "Payment reminder", receipt: "Payment receipt", welcome: "Welcome", blank: "Blank" };
+
+async function emailComposer(c, plans) {
+  const box = h("div", { class: "stack", style: "gap:12px" });
+  if (!c.email) {
+    box.append(h("div", { class: "muted" }, "Add this customer's email address first: click Edit, fill in Email, then Save."));
+    return box;
+  }
+  const [quota, history] = await Promise.all([api("/emails/quota", { method: "POST" }).catch(() => null), api(`/emails?customer=${c.id}`).catch(() => [])]);
+  const tpl = h("select", {}, options(EMAIL_TEMPLATES, "intro"));
+  const subject = h("input", { maxlength: "150" }), message = h("textarea", { rows: "11", maxlength: "5000" });
+  const fill = () => { const [s, m] = emailTemplate(tpl.value, c, plans); subject.value = s; message.value = m; };
+  tpl.onchange = fill; fill();
+  const left = quota ? quota.left : null;
+  const status = quota && !quota.ready ? h("div", { class: "error" }, "Email isn't set up yet: the Resend API key still needs adding in Supabase.")
+    : h("div", { class: "muted", style: "font-size:13px" }, left == null ? "" : `${left} of ${quota.limit} emails left today.`);
+  const send = h("button", { class: "btn primary small", type: "submit", disabled: left === 0 || (quota && !quota.ready) }, "Send email");
+  box.append(h("form", { class: "form", onsubmit: async (ev) => {
+      ev.preventDefault();
+      if (!subject.value.trim()) return subject.focus();
+      if (/\[(amount|plan name)\]/.test(message.value + subject.value)) { toast("Fill in the [amount] or [plan name] placeholders first."); return message.focus(); }
+      send.disabled = true; send.textContent = "Sending…";
+      try {
+        const r = await api("/emails/send", { method: "POST", body: { customerId: c.id, template: tpl.value, subject: subject.value, message: message.value } });
+        toast(`Email sent to ${c.email}. ${r.left} left today.`); await route();
+      } catch (x) { toast(x.message); send.disabled = false; send.textContent = "Send email"; }
+    } },
+    h("div", { class: "full", style: "font-size:13px" }, h("b", {}, "To: "), `${c.name} <${c.email}>`),
+    field("Template", tpl), field("Subject", subject), field("Message", message, "full"),
+    h("div", { class: "actions full", style: "justify-content:space-between" }, status, send)));
+  box.append(h("div", {}, h("b", { style: "font-size:13px" }, `Emails sent to ${c.name}`),
+    history.length ? h("ul", { style: "margin:6px 0 0;padding-left:18px;font-size:13px" }, history.map((m) => h("li", {},
+      `${new Date(m.createdAt).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} · ${m.subject} · ${m.sender?.name || "?"} · `,
+      h("span", { class: m.status === "SENT" ? "due-soon" : "due-late" }, m.status === "SENT" ? "Sent" : "Failed" + (m.error ? `: ${m.error}` : "")))))
+      : h("div", { class: "muted", style: "font-size:13px" }, "None yet.")));
+  return box;
 }
 
 // ---------- software ----------

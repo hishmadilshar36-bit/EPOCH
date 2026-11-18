@@ -29,7 +29,7 @@ const SEL = {
   profile: "id,username,name,title,role,active,mustChangePassword:must_change_password",
   task: "id,title,phase,status,notes,order:sort_order,assigneeId:assignee_id,dueDate:due_date,createdAt:created_at,updatedAt:updated_at,assignee:profiles!tasks_assignee_id_fkey(id,name)",
   software: "id,name,description,status,createdAt:created_at,assignments(id,userId:user_id,responsibility,user:profiles(id,name)),customers(count)",
-  customer: "id,name,contact,phone,type,stage,softwareId:software_id,ownerId:owner_id,planId:plan_id,dealType:deal_type,totalPrice:total_price,monthlyFee:monthly_fee,startedAt:started_at,trialEnds:trial_ends,notes,createdAt:created_at,software(id,name),owner:profiles!customers_owner_id_fkey(id,name),plan:plans(id,name,monthlyPrice:monthly_price)",
+  customer: "id,name,contact,phone,email,type,stage,softwareId:software_id,ownerId:owner_id,planId:plan_id,dealType:deal_type,totalPrice:total_price,monthlyFee:monthly_fee,startedAt:started_at,trialEnds:trial_ends,notes,createdAt:created_at,software(id,name),owner:profiles!customers_owner_id_fkey(id,name),plan:plans(id,name,monthlyPrice:monthly_price)",
   payment: "id,customerId:customer_id,kind,amount,period,method,status,dueDate:due_date,paidAt:paid_at,note,createdAt:created_at,customer:customers(id,name),recordedBy:profiles!payments_recorded_by_fkey(id,name)",
   payout: "id,userId:user_id,amount,reason,customerId:customer_id,method,status,dueDate:due_date,paidAt:paid_at,note,createdAt:created_at,user:profiles!payouts_user_id_fkey(id,name),customer:customers(id,name)",
   plan: "id,name,bestFor:best_for,includes,monthlyPrice:monthly_price,annualPrice:annual_price,setupFee:setup_fee,active,order:sort_order,createdAt:created_at,customers(count)",
@@ -38,7 +38,7 @@ const SEL = {
 // Fields the pages may send for each table, and their database column names
 const COLS = {
   tasks: { title: "title", phase: "phase", status: "status", notes: "notes", assigneeId: "assignee_id", dueDate: "due_date" },
-  customers: { name: "name", contact: "contact", phone: "phone", type: "type", stage: "stage", softwareId: "software_id", ownerId: "owner_id", planId: "plan_id",
+  customers: { name: "name", contact: "contact", phone: "phone", email: "email", type: "type", stage: "stage", softwareId: "software_id", ownerId: "owner_id", planId: "plan_id",
     dealType: "deal_type", totalPrice: "total_price", monthlyFee: "monthly_fee", startedAt: "started_at", trialEnds: "trial_ends", notes: "notes" },
   payments: { customerId: "customer_id", kind: "kind", amount: "amount", period: "period", method: "method", status: "status", dueDate: "due_date", paidAt: "paid_at", note: "note" },
   payouts: { userId: "user_id", amount: "amount", reason: "reason", customerId: "customer_id", method: "method", status: "status", dueDate: "due_date", paidAt: "paid_at", note: "note" },
@@ -76,8 +76,9 @@ async function q(promise) {
   if (error) throw friendly(error);
   return data;
 }
-async function teamFn(body) {
-  const { data, error } = await sb.functions.invoke("team-accounts", { body });
+async function teamFn(body) { return callFn("team-accounts", body); }
+async function callFn(name, body) {
+  const { data, error } = await sb.functions.invoke(name, { body });
   if (error) {
     let msg = "Something went wrong.";
     try { msg = (await error.context.json()).error || msg; } catch {}
@@ -210,6 +211,13 @@ async function api(path, { method = "GET", body } = {}) {
     }
   }
   if (path === "/me/payouts") return q(sb.from("payouts").select(SEL.payout).eq("user_id", ME.id).order("created_at", { ascending: false }));
+
+  // customer emails (sent by the send-email Edge Function through Resend)
+  if (path === "/emails/quota") return callFn("send-email", { action: "quota" });
+  if (path === "/emails/send") return callFn("send-email", body);
+  if ((x = m(/^\/emails\?customer=(\d+)$/)))
+    return q(sb.from("emails").select("id,toEmail:to_email,subject,template,status,error,createdAt:created_at,sender:profiles!emails_sent_by_fkey(name)")
+      .eq("customer_id", x[1]).order("created_at", { ascending: false }).limit(20));
 
   // dashboard
   if (path === "/summary") return q(sb.rpc("dashboard_summary"));

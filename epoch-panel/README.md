@@ -34,6 +34,16 @@ New members get a temporary password from Hishma (**Team accounts** page) and mu
 
 These rules are Row Level Security policies and database functions in Supabase, so they hold even if someone edits the page code in their browser.
 
+## Emailing customers
+
+On **Customers**, each customer has an **Email** button: pick a template (introduction, quotation, payment reminder, receipt, welcome or blank), edit it, and send. Every email is logged and shown under that customer.
+
+- Sent by the Supabase Edge Function `send-email` (`supabase/functions/send-email/index.ts`) through **Resend**.
+- Only to the email address saved on the customer, and at most **5 emails a day** for the whole team (Sri Lanka time).
+- Settings live in the `settings` table: `emailFrom`, `emailReplyTo` (customers' replies go here), `emailDailyLimit`.
+- The Resend API key is the Supabase secret `RESEND_API_KEY` (Edge Functions → Secrets). Never put it in this repository.
+- Until a domain is verified in Resend, Resend only delivers to the Resend account's own address. After verifying a domain, set `emailFrom` to e.g. `Epoch <hello@yourdomain>`.
+
 ## Run the pages on this computer
 
 Any static file server works, for example:
