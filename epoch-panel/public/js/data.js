@@ -26,10 +26,10 @@ const PHASES = [
 
 // ---------- column lists (aliases give the pages the camelCase names they expect) ----------
 const SEL = {
-  profile: "id,username,name,title,role,active,mustChangePassword:must_change_password",
+  profile: "id,username,name,title,role,active,assignable,seesCustomers:sees_customers,mustChangePassword:must_change_password",
   task: "id,title,phase,status,notes,order:sort_order,assigneeId:assignee_id,dueDate:due_date,createdAt:created_at,updatedAt:updated_at,assignee:profiles!tasks_assignee_id_fkey(id,name)",
   software: "id,name,description,status,createdAt:created_at,assignments(id,userId:user_id,responsibility,user:profiles(id,name)),customers(count)",
-  customer: "id,name,contact,phone,email,type,stage,softwareId:software_id,ownerId:owner_id,planId:plan_id,dealType:deal_type,totalPrice:total_price,monthlyFee:monthly_fee,startedAt:started_at,trialEnds:trial_ends,notes,createdAt:created_at,software(id,name),owner:profiles!customers_owner_id_fkey(id,name),plan:plans(id,name,monthlyPrice:monthly_price)",
+  customer: "id,name,contact,phone,email,type,stage,softwareId:software_id,ownerId:owner_id,planId:plan_id,startedAt:started_at,trialEnds:trial_ends,notes,createdAt:created_at,software(id,name),owner:profiles!customers_owner_id_fkey(id,name),plan:plans(id,name,monthlyPrice:monthly_price)",
   payment: "id,customerId:customer_id,kind,amount,period,method,status,dueDate:due_date,paidAt:paid_at,note,createdAt:created_at,customer:customers(id,name),recordedBy:profiles!payments_recorded_by_fkey(id,name)",
   payout: "id,userId:user_id,amount,reason,customerId:customer_id,method,status,dueDate:due_date,paidAt:paid_at,note,createdAt:created_at,user:profiles!payouts_user_id_fkey(id,name),customer:customers(id,name)",
   plan: "id,name,bestFor:best_for,includes,monthlyPrice:monthly_price,annualPrice:annual_price,setupFee:setup_fee,active,order:sort_order,createdAt:created_at,customers(count)",
@@ -39,7 +39,9 @@ const SEL = {
 const COLS = {
   tasks: { title: "title", phase: "phase", status: "status", notes: "notes", assigneeId: "assignee_id", dueDate: "due_date" },
   customers: { name: "name", contact: "contact", phone: "phone", email: "email", type: "type", stage: "stage", softwareId: "software_id", ownerId: "owner_id", planId: "plan_id",
-    dealType: "deal_type", totalPrice: "total_price", monthlyFee: "monthly_fee", startedAt: "started_at", trialEnds: "trial_ends", notes: "notes" },
+    startedAt: "started_at", trialEnds: "trial_ends", notes: "notes" },
+  // price details: admin-only table customer_billing
+  billing: { dealType: "deal_type", totalPrice: "total_price", monthlyFee: "monthly_fee" },
   payments: { customerId: "customer_id", kind: "kind", amount: "amount", period: "period", method: "method", status: "status", dueDate: "due_date", paidAt: "paid_at", note: "note" },
   payouts: { userId: "user_id", amount: "amount", reason: "reason", customerId: "customer_id", method: "method", status: "status", dueDate: "due_date", paidAt: "paid_at", note: "note" },
   software: { name: "name", description: "description", status: "status" },
@@ -168,9 +170,12 @@ async function api(path, { method = "GET", body } = {}) {
   if (path === "/customers" && method === "GET") {
     const rows = await q(sb.from("customers").select(SEL.customer).order("created_at", { ascending: false }));
     if (admin()) {
-      const money = await q(sb.rpc("customer_money"));
+      const [money, billing] = await Promise.all([q(sb.rpc("customer_money")), q(sb.from("customer_billing").select("customer_id,deal_type,total_price,monthly_fee"))]);
       const by = Object.fromEntries(money.map((r) => [r.customer_id, r]));
+      const bill = Object.fromEntries(billing.map((b) => [b.customer_id, b]));
       for (const c of rows) {
+        const b = bill[c.id];
+        c.dealType = b?.deal_type || "SUBSCRIPTION"; c.totalPrice = b?.total_price || 0; c.monthlyFee = b?.monthly_fee || 0;
         const r = by[c.id] || { paid: 0, pending: 0 };
         const paid = Number(r.paid), pending = Number(r.pending);
         c.money = { paid, pending, unbilled: c.dealType === "ONE_TIME" ? Math.max(0, c.totalPrice - paid - pending) : 0 };
@@ -181,13 +186,18 @@ async function api(path, { method = "GET", body } = {}) {
   if (path === "/customers" && method === "POST") {
     const row = toRow("customers", body);
     if (!row.name) throw new Error("Business name is required.");
-    return q(sb.from("customers").insert(row).select(SEL.customer).single());
+    const created = await q(sb.from("customers").insert(row).select(SEL.customer).single());
+    if (admin()) await q(sb.from("customer_billing").upsert({ customer_id: created.id, ...toRow("billing", body) }));
+    return created;
   }
   if ((x = m(/^\/customers\/(\d+)$/))) {
     if (method === "DELETE") return q(sb.from("customers").delete().eq("id", x[1]));
     const row = toRow("customers", body);
     if (row.name === "") throw new Error("Business name is required.");
-    return q(sb.from("customers").update(row).eq("id", x[1]).select(SEL.customer).single());
+    const saved = await q(sb.from("customers").update(row).eq("id", x[1]).select(SEL.customer).single());
+    const billing = toRow("billing", body);
+    if (admin() && Object.keys(billing).length) await q(sb.from("customer_billing").upsert({ customer_id: Number(x[1]), ...billing }));
+    return saved;
   }
 
   // customer payments (admin) and money split (payouts)

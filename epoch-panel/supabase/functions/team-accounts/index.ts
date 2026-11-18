@@ -88,6 +88,8 @@ Deno.serve(async (req) => {
     if (title !== undefined) patch.title = title;
     if (body.role === "ADMIN" || body.role === "MEMBER") patch.role = body.role;
     if (typeof body.active === "boolean") patch.active = body.active;
+    if (typeof body.assignable === "boolean") patch.assignable = body.assignable;
+    if (typeof body.seesCustomers === "boolean") patch.sees_customers = body.seesCustomers;
     if (target === me.id && (patch.role === "MEMBER" || patch.active === false)) return fail(400, "You can't remove your own admin access.");
     const { error } = await admin.from("profiles").update(patch).eq("id", target);
     if (error) return fail(400, error.message);

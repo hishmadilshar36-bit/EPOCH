@@ -37,7 +37,9 @@ function todayUTC() { const n = new Date(); return Date.UTC(n.getFullYear(), n.g
 const daysUntil = (iso) => Math.round((Date.parse(ymd(iso) + "T00:00:00Z") - todayUTC()) / 864e5);
 function todayYMD() { return new Date(todayUTC()).toISOString().slice(0, 10); }
 const options = (map, val) => Object.entries(map).map(([k, v]) => h("option", { value: k, selected: k === val }, v));
-const userOptions = (val, { none = "Unassigned" } = {}) => [h("option", { value: "" }, none), ...S.users.filter((u) => u.active || u.id === val).map((u) => h("option", { value: u.id, selected: u.id === val }, u.name))];
+// People in the working team: active and set to get tasks (the admin-only account is not)
+const inTeam = (u) => u.active && u.assignable !== false;
+const userOptions = (val, { none = "Unassigned" } = {}) => [h("option", { value: "" }, none), ...S.users.filter((u) => inTeam(u) || u.id === val).map((u) => h("option", { value: u.id, selected: u.id === val }, u.name))];
 function field(label, input, cls) { if (!input.id) input.id = "f" + Math.random().toString(36).slice(2, 8); return h("label", { class: "fld" + (cls ? " " + cls : ""), for: input.id }, label, input); }
 function confirmBtn(label, onConfirm) {
   const b = h("button", { class: "btn danger small", type: "button" }, label);
@@ -50,11 +52,13 @@ function confirmBtn(label, onConfirm) {
 }
 // Select values → ids: numbers for software/customers/plans, text (uuid) for team members
 const numOrNull = (v) => (v === "" ? null : /^\d+$/.test(v) ? Number(v) : v);
-// Two places: the workplace (app.html, same view for everyone, Hishma included)
+// Two places: the workplace (app.html, same view for every team member)
 // and the admin panel (admin.html, admins only). Admin tools only show in the admin panel.
 const MODE = document.body.dataset.mode === "admin" ? "admin" : "work";
 const isAdminUser = () => S.me?.role === "ADMIN";
 const isAdmin = () => isAdminUser() && MODE === "admin";
+// Customers are hidden from people the admin has set to "Sees customers: No" (also enforced in Supabase)
+const canSeeCustomers = () => isAdminUser() || S.me?.seesCustomers !== false;
 const S = { me: null, users: [], open: null };
 
 // ---------- shell ----------
@@ -65,6 +69,7 @@ async function boot() {
   $("meRole").textContent = isAdminUser() ? "· Admin" : "";
   const sw = $("switchPanel");
   if (sw) sw.hidden = !isAdminUser();
+  document.querySelectorAll('#nav a[data-page="customers"]').forEach((a) => (a.hidden = !canSeeCustomers()));
   $("logout").onclick = async () => { await api("/logout", { method: "POST" }).catch(() => {}); location.replace("index.html"); };
   window.addEventListener("hashchange", () => { S.open = null; route(); });
   if (!location.hash) location.hash = S.me.mustChangePassword ? "#account" : MODE === "admin" ? "#dashboard" : "#me";
@@ -80,7 +85,7 @@ const MODE_PAGES = {
 async function route() {
   const home = MODE === "admin" ? "dashboard" : "me";
   let page = location.hash.slice(1) || home;
-  if (!PAGES[page] || !MODE_PAGES[MODE].includes(page)) page = home;
+  if (!PAGES[page] || !MODE_PAGES[MODE].includes(page) || (page === "customers" && !canSeeCustomers())) page = home;
   if (S.me.mustChangePassword) page = "account";
   document.querySelectorAll("#nav a").forEach((a) => a.toggleAttribute("aria-current", false) || (a.dataset.page === page && a.setAttribute("aria-current", "page")));
   const main = $("main");
@@ -111,7 +116,7 @@ function trialAlerts(trials) {
 function todaysTasksCard(tasks) {
   const today = todayYMD();
   const due = tasks.filter((t) => ymd(t.dueDate) === today);
-  const people = S.users.filter((u) => u.active);
+  const people = S.users.filter(inTeam);
   const groups = [...people.map((u) => ({ name: u.name, me: u.id === S.me.id, list: due.filter((t) => t.assigneeId === u.id) })),
     { name: "Whole team", me: false, list: due.filter((t) => !t.assigneeId) }].filter((g) => g.list.length || g.name !== "Whole team");
   const done = due.filter((t) => t.status === "DONE").length;
@@ -142,7 +147,7 @@ async function pageDashboard() {
   const mine = sortTasks(tasks.filter((t) => t.assigneeId === S.me.id && t.status !== "DONE"));
   root.append(h("div", { class: "card" }, h("div", { class: "card-head" }, h("h2", {}, "Your tasks now"), h("a", { href: "#tasks", class: "btn small" }, "Open task board")),
     mine.length ? h("ul", { class: "tasks", style: "border-top:0" }, mine.map((t) => taskRow(t, { compact: true }))) : h("div", { class: "empty" }, "Nothing due right now.")));
-  root.append(h("div", { class: "card" }, h("div", { class: "card-head" }, h("h2", {}, "Customer pipeline"), h("a", { href: "#customers", class: "btn small" }, "Open customers")),
+  if (sum.pipeline && canSeeCustomers()) root.append(h("div", { class: "card" }, h("div", { class: "card-head" }, h("h2", {}, "Customer pipeline"), h("a", { href: "#customers", class: "btn small" }, "Open customers")),
     h("div", { class: "grid", style: "grid-template-columns:repeat(auto-fit,minmax(110px,1fr));padding:12px" },
       Object.entries(sum.pipeline).map(([k, v]) => h("div", { class: "kpi card" }, h("div", { class: "v mono" }, String(v)), h("div", { class: "l" }, STAGE[k]))))));
   return root;
@@ -247,7 +252,7 @@ function taskGroups(list) {
 
 async function pageTasks() {
   const tasks = await api("/tasks");
-  const root = h("div", { class: "stack" }, head(MODE === "admin" ? "Assign tasks" : "My tasks", isAdmin() ? "Add tasks and assign them to the team. Each person sees their own tasks." : "Your tasks from Hishma. Tick the circle as you work through them."));
+  const root = h("div", { class: "stack" }, head(MODE === "admin" ? "Assign tasks" : "My tasks", isAdmin() ? "Add tasks and assign them to the team. Each person sees their own tasks." : "Your tasks from the admin. Tick the circle as you work through them."));
 
   // Admin: add and assign a task
   if (isAdmin()) {
@@ -264,7 +269,7 @@ async function pageTasks() {
   if (isAdmin()) {
     person = h("select", { class: "inp", style: "width:auto", "aria-label": "Show tasks for", onchange: (e) => { TF.person = e.target.value; route(); } },
       h("option", { value: "" }, "Everyone"), h("option", { value: "me" }, "My tasks"),
-      S.users.filter((u) => u.id !== S.me.id && u.active).map((u) => h("option", { value: String(u.id) }, `${u.name}'s tasks`)), h("option", { value: "none" }, "Whole-team tasks"));
+      S.users.filter((u) => u.id !== S.me.id && inTeam(u)).map((u) => h("option", { value: String(u.id) }, `${u.name}'s tasks`)), h("option", { value: "none" }, "Whole-team tasks"));
     person.value = TF.person;
   }
   root.append(h("div", { class: "actions", style: "justify-content:flex-start" }, person,
@@ -280,7 +285,7 @@ async function pageTasks() {
       h("div", { class: "card-head" }, h("h2", { class: key === "late" ? "due-late" : "" }, label), h("span", { class: "muted mono" }, String(list.length))),
       h("ul", { class: "tasks", style: "border-top:0" }, list.map((t) => taskRow(t)))));
   }
-  if (!any) root.append(h("div", { class: "card empty" }, mine.length ? "Everything is done. Untick “Hide done” to see finished tasks." : isAdmin() ? "No tasks yet. Add the first one above." : "No tasks for you yet. Hishma will assign them here."));
+  if (!any) root.append(h("div", { class: "card empty" }, mine.length ? "Everything is done. Untick “Hide done” to see finished tasks." : isAdmin() ? "No tasks yet. Add the first one above." : "No tasks for you yet. The admin will assign them here."));
   return root;
 }
 
@@ -298,12 +303,13 @@ async function pageCustomers() {
     dealType: h("select", {}, options(DEAL, "SUBSCRIPTION")), price: h("input", { type: "number", min: "0", step: "1000", placeholder: "0" }), planId: h("select", {}, planOptions(null)) };
   const priceLabel = h("span", {}, "Monthly fee (Rs.)");
   f.dealType.onchange = () => (priceLabel.textContent = f.dealType.value === "ONE_TIME" ? "Full price (Rs.)" : "Monthly fee (Rs.)");
-  f.planId.onchange = () => { const p = plans.find((x) => x.id === Number(f.planId.value)); if (p) { f.dealType.value = "SUBSCRIPTION"; f.dealType.onchange(); f.price.value = p.monthlyPrice; } };
+  f.planId.onchange = () => { const p = plans.find((x) => x.id === Number(f.planId.value)); if (p && isAdmin()) { f.dealType.value = "SUBSCRIPTION"; f.dealType.onchange(); f.price.value = p.monthlyPrice; } };
   const addForm = h("form", { class: "card card-body form", onsubmit: (e) => { e.preventDefault(); if (!f.name.value.trim()) return f.name.focus();
     const price = Number(f.price.value) || 0, oneTime = f.dealType.value === "ONE_TIME";
-    act(() => api("/customers", { method: "POST", body: { name: f.name.value, contact: f.contact.value, phone: f.phone.value, email: f.email.value, type: f.type.value, softwareId: numOrNull(f.softwareId.value), ownerId: numOrNull(f.ownerId.value), stage: f.stage.value, dealType: f.dealType.value, totalPrice: oneTime ? price : 0, monthlyFee: oneTime ? 0 : price, planId: numOrNull(f.planId.value) } }), "Customer added"); } },
+    const billing = isAdmin() ? { dealType: f.dealType.value, totalPrice: oneTime ? price : 0, monthlyFee: oneTime ? 0 : price } : {};
+    act(() => api("/customers", { method: "POST", body: { name: f.name.value, contact: f.contact.value, phone: f.phone.value, email: f.email.value, type: f.type.value, softwareId: numOrNull(f.softwareId.value), ownerId: numOrNull(f.ownerId.value), stage: f.stage.value, planId: numOrNull(f.planId.value), ...billing } }), "Customer added"); } },
     field("Business name", f.name), field("Contact person", f.contact), field("Phone", f.phone), field("Email", f.email), field("Type", f.type), field("Software", f.softwareId), field("Handled by", f.ownerId), field("Stage", f.stage),
-    field("Subscription plan", f.planId), field("Deal", f.dealType), field(priceLabel, f.price),
+    field("Subscription plan", f.planId), isAdmin() ? field("Deal", f.dealType) : null, isAdmin() ? field(priceLabel, f.price) : null,
     h("button", { class: "btn primary", type: "submit" }, "Add customer"));
   root.append(addForm);
 
@@ -315,12 +321,12 @@ async function pageCustomers() {
       h("td", {}, c.software?.name || "—"),
       h("td", {}, h("span", { class: "pill " + c.stage }, STAGE[c.stage])),
       h("td", {}, c.owner?.name || "—"),
-      h("td", {}, h("div", { class: "mono" }, priceText(c)), moneyLine(c)),
+      isAdmin() ? h("td", {}, h("div", { class: "mono" }, priceText(c)), moneyLine(c)) : null,
       h("td", {}, c.stage === "FREE_TRIAL" && c.trialEnds ? `Free until ${fmtDate(c.trialEnds)}` : c.startedAt ? `Since ${fmtDate(c.startedAt)}` : ""),
       h("td", {}, h("div", { class: "actions", style: "flex-wrap:nowrap" },
         h("button", { class: "btn small", onclick: () => { S.open = mailOpen ? null : "m" + c.id; route(); } }, mailOpen ? "Close" : "Email"),
         h("button", { class: "btn small", onclick: () => { S.open = open ? null : "c" + c.id; route(); } }, open ? "Close" : "Edit")))));
-    if (mailOpen) tbody.append(h("tr", {}, h("td", { colspan: "7", style: "background:var(--surface-2)" }, await emailComposer(c, plans))));
+    if (mailOpen) tbody.append(h("tr", {}, h("td", { colspan: isAdmin() ? "7" : "6", style: "background:var(--surface-2)" }, await emailComposer(c, plans))));
     if (open) {
       const e = { name: h("input", { value: c.name }), contact: h("input", { value: c.contact }), phone: h("input", { value: c.phone }), email: h("input", { type: "email", value: c.email || "" }), type: h("select", {}, typeOpts(c.type)),
         softwareId: h("select", {}, swOptions(c.softwareId)), ownerId: h("select", {}, userOptions(c.ownerId)), stage: h("select", {}, options(STAGE, c.stage)),
@@ -328,16 +334,16 @@ async function pageCustomers() {
         dealType: h("select", {}, options(DEAL, c.dealType)), totalPrice: h("input", { type: "number", min: "0", step: "1000", value: c.totalPrice }),
         monthlyFee: h("input", { type: "number", min: "0", step: "100", value: c.monthlyFee }), startedAt: h("input", { type: "date", value: ymd(c.startedAt) }), trialEnds: h("input", { type: "date", value: ymd(c.trialEnds) }),
         notes: h("textarea", {}, c.notes) };
-      e.planId.onchange = () => { const p = plans.find((x) => x.id === Number(e.planId.value)); if (p) { e.dealType.value = "SUBSCRIPTION"; e.monthlyFee.value = p.monthlyPrice; } };
-      const save = () => act(() => api(`/customers/${c.id}`, { method: "PATCH", body: { name: e.name.value, contact: e.contact.value, phone: e.phone.value, email: e.email.value, type: e.type.value, softwareId: numOrNull(e.softwareId.value), ownerId: numOrNull(e.ownerId.value), stage: e.stage.value, planId: numOrNull(e.planId.value), dealType: e.dealType.value, totalPrice: Number(e.totalPrice.value) || 0, monthlyFee: Number(e.monthlyFee.value) || 0, startedAt: e.startedAt.value, trialEnds: e.trialEnds.value, notes: e.notes.value } }), "Customer saved");
-      tbody.append(h("tr", {}, h("td", { colspan: "7", style: "background:var(--surface-2)" }, h("div", { class: "form" },
+      e.planId.onchange = () => { const p = plans.find((x) => x.id === Number(e.planId.value)); if (p && isAdmin()) { e.dealType.value = "SUBSCRIPTION"; e.monthlyFee.value = p.monthlyPrice; } };
+      const save = () => act(() => api(`/customers/${c.id}`, { method: "PATCH", body: { name: e.name.value, contact: e.contact.value, phone: e.phone.value, email: e.email.value, type: e.type.value, softwareId: numOrNull(e.softwareId.value), ownerId: numOrNull(e.ownerId.value), stage: e.stage.value, planId: numOrNull(e.planId.value), ...(isAdmin() ? { dealType: e.dealType.value, totalPrice: Number(e.totalPrice.value) || 0, monthlyFee: Number(e.monthlyFee.value) || 0 } : {}), startedAt: e.startedAt.value, trialEnds: e.trialEnds.value, notes: e.notes.value } }), "Customer saved");
+      tbody.append(h("tr", {}, h("td", { colspan: isAdmin() ? "7" : "6", style: "background:var(--surface-2)" }, h("div", { class: "form" },
         field("Business name", e.name), field("Contact person", e.contact), field("Phone", e.phone), field("Email", e.email), field("Type", e.type), field("Software", e.softwareId), field("Handled by", e.ownerId), field("Stage", e.stage),
-        field("Subscription plan", e.planId), field("Deal", e.dealType), field("Full price (one-time, Rs.)", e.totalPrice), field("Monthly fee (subscription, Rs.)", e.monthlyFee), field("Customer since", e.startedAt), field("Free period ends", e.trialEnds), field("Notes", e.notes, "full"),
+        field("Subscription plan", e.planId), ...(isAdmin() ? [field("Deal", e.dealType), field("Full price (one-time, Rs.)", e.totalPrice), field("Monthly fee (subscription, Rs.)", e.monthlyFee)] : []), field("Customer since", e.startedAt), field("Free period ends", e.trialEnds), field("Notes", e.notes, "full"),
         h("div", { class: "actions full" }, isAdmin() ? confirmBtn("Delete customer", () => act(() => api(`/customers/${c.id}`, { method: "DELETE" }), "Customer deleted")) : null, h("button", { class: "btn primary small", onclick: save }, "Save"))))));
     }
   }
   root.append(h("div", { class: "card" }, h("div", { class: "card-head" }, h("h2", {}, `All customers (${customers.length})`)),
-    customers.length ? h("div", { class: "table-wrap" }, h("table", {}, h("thead", {}, h("tr", {}, ["Business", "Software", "Stage", "Handled by", "Price", "Dates", ""].map((x) => h("th", {}, x)))), tbody))
+    customers.length ? h("div", { class: "table-wrap" }, h("table", {}, h("thead", {}, h("tr", {}, ["Business", "Software", "Stage", "Handled by", isAdmin() ? "Price" : null, "Dates", ""].filter((x) => x !== null).map((x) => h("th", {}, x)))), tbody))
       : h("div", { class: "empty" }, "No customers yet. Add the first one above.")));
   return root;
 }
@@ -376,7 +382,8 @@ async function emailComposer(c, plans) {
     return box;
   }
   const [quota, history] = await Promise.all([api("/emails/quota", { method: "POST" }).catch(() => null), api(`/emails?customer=${c.id}`).catch(() => [])]);
-  const tpl = h("select", {}, options(EMAIL_TEMPLATES, "intro"));
+  const allowed = Object.fromEntries(Object.entries(EMAIL_TEMPLATES).filter(([k]) => isAdmin() || !["reminder", "receipt"].includes(k)));
+  const tpl = h("select", {}, options(allowed, "intro"));
   const subject = h("input", { maxlength: "150" }), message = h("textarea", { rows: "11", maxlength: "5000" });
   const fill = () => { const [s, m] = emailTemplate(tpl.value, c, plans); subject.value = s; message.value = m; };
   tpl.onchange = fill; fill();
@@ -426,12 +433,12 @@ async function pageSoftware() {
           h("button", { class: "btn small", onclick: () => { S.open = null; route(); } }, "Cancel"),
           h("button", { class: "btn primary small", onclick: () => act(async () => { await api(`/software/${sw.id}`, { method: "PATCH", body: { name: n.value, description: d.value, status: s.value } }); S.open = null; }, "Saved") }, "Save"))));
     } else {
-      body.append(sw.description ? h("p", { style: "margin:0" }, sw.description) : null, h("div", { class: "muted", style: "font-size:12px" }, `${sw._count.customers} customer${sw._count.customers === 1 ? "" : "s"}`));
+      body.append(sw.description ? h("p", { style: "margin:0" }, sw.description) : null, canSeeCustomers() ? h("div", { class: "muted", style: "font-size:12px" }, `${sw._count.customers} customer${sw._count.customers === 1 ? "" : "s"}`) : null);
     }
     body.append(h("div", { class: "fld" }, "Assigned team", sw.assignments.length ? h("div", { class: "assign" }, sw.assignments.map((a) => h("span", { class: "chip" + (a.userId === S.me.id ? " mine" : "") }, `${a.user.name} · ${a.responsibility}`,
       isAdmin() ? h("button", { type: "button", "aria-label": `Remove ${a.user.name} as ${a.responsibility}`, title: "Remove", onclick: () => act(() => api(`/assignments/${a.id}`, { method: "DELETE" }), "Removed") }, "×") : null))) : h("span", {}, "Nobody assigned yet")));
     if (isAdmin()) {
-      const u = h("select", { class: "inp", "aria-label": "Team member" }, S.users.filter((x) => x.active).map((x) => h("option", { value: x.id }, x.name)));
+      const u = h("select", { class: "inp", "aria-label": "Team member" }, S.users.filter(inTeam).map((x) => h("option", { value: x.id }, x.name)));
       const r = h("select", { class: "inp", "aria-label": "Responsibility" }, ["Development", "Design", "Sales", "Support", "Video"].map((x) => h("option", { value: x }, x)));
       body.append(h("div", { class: "actions", style: "justify-content:flex-start" }, u, r, h("button", { class: "btn small primary", onclick: () => act(() => api(`/software/${sw.id}/assignments`, { method: "POST", body: { userId: u.value, responsibility: r.value } }), "Assigned") }, "Assign"),
         editing ? null : h("button", { class: "btn small", style: "margin-left:auto", onclick: () => { S.open = "s" + sw.id; route(); } }, "Edit")));
@@ -513,7 +520,7 @@ async function pagePlans() {
       p.bestFor ? h("div", {}, h("b", {}, "Best for: "), p.bestFor) : null,
       lines.length ? h("ul", {}, lines.map((l) => h("li", {}, l))) : null,
       isAdmin() ? h("div", { class: "cost mono" }, `Hosting: ${p.hostingPlan || "—"} · ${money(p.hostingCost)}/mo`, h("br"), `Epoch keeps ${money(p.monthlyPrice - p.hostingCost)}/mo before work time`) : null,
-      h("div", { class: "muted", style: "font-size:12px" }, `${p._count.customers} customer${p._count.customers === 1 ? "" : "s"}${p.active ? "" : " · Not on sale"}`));
+      h("div", { class: "muted", style: "font-size:12px" }, [canSeeCustomers() ? `${p._count.customers} customer${p._count.customers === 1 ? "" : "s"}` : "", p.active ? "" : "Not on sale"].filter(Boolean).join(" · ")));
     if (isAdmin() && !editing) body.append(h("div", { class: "actions" }, h("button", { class: "btn small", onclick: () => { S.open = "p" + p.id; route(); } }, "Edit")));
     if (editing) {
       const e = { name: h("input", { value: p.name }), bestFor: h("input", { value: p.bestFor }), monthlyPrice: h("input", { type: "number", min: "0", step: "100", value: p.monthlyPrice }),
@@ -565,7 +572,7 @@ async function pagePayouts() {
   const root = h("div", { class: "stack" }, head("Money split", "Split what customers pay between the Epoch company fund and the team. Each person sees their own payments on My panel."));
   root.append(h("div", { class: "grid g4" }, kpi(money(m.collected), "Collected from customers"), kpi(money(m.companyFund), "Put into the company fund"),
     kpi(money(m.paidToTeam), "Paid to the team"), kpi(money(m.unsplit), "Collected but not yet split")));
-  const active = S.users.filter((u) => u.active);
+  const active = S.users.filter(inTeam);
   const totals = (list) => [list.filter((p) => p.status === "PAID").reduce((s, p) => s + p.amount, 0), list.filter((p) => p.status === "PENDING").reduce((s, p) => s + p.amount, 0)];
   const [cPaid, cPlanned] = totals(payouts.filter((p) => !p.userId));
   root.append(h("div", { class: "grid g4" },
@@ -622,17 +629,19 @@ async function pageTeam() {
   for (const u of S.users) {
     const open = S.open === "u" + u.id;
     tbody.append(h("tr", {},
-      h("td", {}, h("b", {}, u.name), h("div", { class: "muted", style: "font-size:12px" }, u.title)),
+      h("td", {}, h("b", {}, u.name), h("div", { class: "muted", style: "font-size:12px" }, [u.title, u.assignable === false ? "Not in the working team" : "", u.role !== "ADMIN" && u.seesCustomers === false ? "No customer access" : ""].filter(Boolean).join(" · "))),
       h("td", { class: "mono" }, u.username),
       h("td", {}, h("span", { class: "pill " + u.role }, u.role === "ADMIN" ? "Admin" : "Member")),
       h("td", {}, !u.active ? h("span", { class: "pill LOST" }, "Disabled") : u.mustChangePassword ? h("span", { class: "pill PENDING" }, "Must set password") : h("span", { class: "pill PAID" }, "Active")),
       h("td", {}, h("button", { class: "btn small", onclick: () => { S.open = open ? null : "u" + u.id; route(); } }, open ? "Close" : "Manage"))));
     if (open) {
-      const e = { name: h("input", { value: u.name }), title: h("input", { value: u.title }), role: h("select", { disabled: u.id === S.me.id }, h("option", { value: "MEMBER", selected: u.role === "MEMBER" }, "Team member"), h("option", { value: "ADMIN", selected: u.role === "ADMIN" }, "Admin")),
+      const e = { sees: h("select", { disabled: u.role === "ADMIN" }, h("option", { value: "1", selected: u.role === "ADMIN" || u.seesCustomers !== false }, "Yes"), h("option", { value: "0", selected: u.role !== "ADMIN" && u.seesCustomers === false }, "No: hide customers")),
+        assignable: h("select", {}, h("option", { value: "1", selected: u.assignable !== false }, "Yes: in the working team"), h("option", { value: "0", selected: u.assignable === false }, "No: admin panel only")),
+        name: h("input", { value: u.name }), title: h("input", { value: u.title }), role: h("select", { disabled: u.id === S.me.id }, h("option", { value: "MEMBER", selected: u.role === "MEMBER" }, "Team member"), h("option", { value: "ADMIN", selected: u.role === "ADMIN" }, "Admin")),
         active: h("select", { disabled: u.id === S.me.id }, h("option", { value: "1", selected: u.active }, "Can sign in"), h("option", { value: "0", selected: !u.active }, "Disabled")), pw: h("input", { type: "text", placeholder: "New temporary password", autocomplete: "off" }) };
       tbody.append(h("tr", {}, h("td", { colspan: "5", style: "background:var(--surface-2)" }, h("div", { class: "form" },
-        field("Name", e.name), field("Job title", e.title), field("Role", e.role), field("Access", e.active),
-        h("div", { class: "actions" }, h("button", { class: "btn primary small", onclick: () => act(() => api(`/users/${u.id}`, { method: "PATCH", body: { name: e.name.value, title: e.title.value, ...(u.id === S.me.id ? {} : { role: e.role.value, active: e.active.value === "1" }) } }), "Saved") }, "Save")),
+        field("Name", e.name), field("Job title", e.title), field("Role", e.role), field("Access", e.active), field("Gets tasks", e.assignable), field("Sees customers", e.sees),
+        h("div", { class: "actions" }, h("button", { class: "btn primary small", onclick: () => act(() => api(`/users/${u.id}`, { method: "PATCH", body: { name: e.name.value, title: e.title.value, assignable: e.assignable.value === "1", seesCustomers: e.sees.value === "1", ...(u.id === S.me.id ? {} : { role: e.role.value, active: e.active.value === "1" }) } }), "Saved") }, "Save")),
         u.id === S.me.id ? null : field("Reset password", e.pw),
         u.id === S.me.id ? h("div", { class: "muted", style: "font-size:12px" }, "Change your own password on My account.") : h("div", { class: "actions" }, h("button", { class: "btn small", onclick: () => act(() => api(`/users/${u.id}/password`, { method: "POST", body: { password: e.pw.value } }), "Password reset. They must choose a new one at next sign-in.") }, "Reset password"))))));
     }

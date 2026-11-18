@@ -18,7 +18,7 @@
     <label class="fld" for="username">Username<input id="username" name="username" autocomplete="username" autocapitalize="none" required></label>
     <label class="fld" for="password">Password<input id="password" name="password" type="password" autocomplete="current-password" required></label>
     <button class="btn primary" type="submit" id="go">Sign in</button>
-    <p class="muted" style="margin:0;font-size:12px">Forgot your password? Ask Hishma to reset it.</p>
+    <p class="muted" style="margin:0;font-size:12px">Forgot your password? Ask the admin to reset it.</p>
   </form>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
@@ -34,7 +34,7 @@ document.getElementById("loginForm").addEventListener("submit", async (e) => {
   try {
     if (!/^[a-z0-9._-]{3,30}$/.test(username) || !password) throw new Error("Wrong username or password.");
     const { error } = await sb.auth.signInWithPassword({ email: `${username}@${EMAIL_DOMAIN}`, password });
-    if (error) throw new Error(/invalid/i.test(error.message) ? "Wrong username or password." : /banned/i.test(error.message) ? "This account is disabled. Ask Hishma." : error.message);
+    if (error) throw new Error(/invalid/i.test(error.message) ? "Wrong username or password." : /banned/i.test(error.message) ? "This account is disabled. Ask the admin." : error.message);
     location.replace("app.html");
   } catch (x) { err.textContent = x.message; err.hidden = false; }
   finally { go.disabled = false; }

@@ -20,16 +20,16 @@ There is no server to keep running. On every push to `main`, `.github/workflows/
 
 Usernames stay the same (`hishma`, `hansa`, `ravindu`). Behind the scenes Supabase stores each login as `<username>@epoch.invalid`; nobody needs to type that.
 
-New members get a temporary password from Hishma (**Team accounts** page) and must choose their own at first sign-in.
+New members get a temporary password from the admin (Admin panel → **Team accounts**) and must choose their own at first sign-in.
 
 ## Two places
 
-- **Workplace** (`app.html`): where everyone works, Hishma included, with the same view as every member: My panel, own tasks, the team's tasks for today (with who has finished), customers, software and plans.
-- **Admin panel** (`admin.html`): admins only, opened from the **Open admin panel** button in the workplace. Overview with money, assigning tasks to anyone, customers with payments, customer payments, money split, team accounts, software and plan setup. Anyone else who opens it is sent back to the workplace.
+- **Workplace** (`app.html`): where every team member works, with the same view for everyone: My panel, own tasks, the team's tasks for today (with who has finished), customers, software and plans.
+- **Admin panel** (`admin.html`): only people with the Admin role, opened from the **Open admin panel** button in the workplace. Overview with money, assigning tasks to anyone, customers with payments, customer payments, money split, team accounts, software and plan setup. Anyone else who opens it is sent back to the workplace.
 
 ## Who can do what (enforced in Supabase)
 
-| | Hishma (admin) | Members |
+| | Admin | Members (everyone in the workplace) |
 |---|---|---|
 | Task board | All tasks; add, edit, reassign, delete | Own tasks + whole-team tasks; change status and notes of own tasks; add tasks for themselves |
 | Customers, software, subscription plans | Everything | View; add and edit customers |
