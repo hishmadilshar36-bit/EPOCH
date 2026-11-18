@@ -1,7 +1,8 @@
 // Epoch panel: send an email to a customer from Epoch's Gmail account.
 // - Only signed-in, active team members can send.
 // - Only to the email address saved on the customer (no free-typed addresses).
-// - At most `emailDailyLimit` emails per day (Sri Lanka time), default 5.
+// - Optional daily cap: set `emailDailyLimit` in settings (Sri Lanka time). No setting = no limit
+//   (Gmail itself allows about 500 a day).
 // - Every attempt is logged in public.emails.
 // Needs the Supabase secret GMAIL_APP_PASSWORD (Edge Functions → Secrets): a Gmail App Password,
 // not the normal Gmail password. Uses Gmail SMTP on port 465 (Supabase blocks 25 and 587).
@@ -53,17 +54,17 @@ Deno.serve(async (req) => {
 
   const { data: settingRows } = await db.from("settings").select("key,value").in("key", ["emailFrom", "emailReplyTo", "emailDailyLimit", "emailGmailUser"]);
   const settings = Object.fromEntries((settingRows || []).map((r) => [r.key, r.value]));
-  const limit = Math.max(0, Number(settings.emailDailyLimit ?? 5) || 0);
+  const limit = settings.emailDailyLimit ? Math.max(0, Number(settings.emailDailyLimit) || 0) : null; // null = no limit
   const { count: sentToday } = await db.from("emails").select("id", { count: "exact", head: true })
     .eq("status", "SENT").gte("created_at", startOfColomboDay());
   const used = sentToday ?? 0;
 
   const gmailUser = settings.emailGmailUser || "";
   const appPassword = (Deno.env.get("GMAIL_APP_PASSWORD") || "").replace(/\s+/g, "");
-  if (body.action === "quota") return reply(200, { limit, used, left: Math.max(0, limit - used), ready: !!(appPassword && gmailUser) });
+  if (body.action === "quota") return reply(200, { limit, used, left: limit == null ? null : Math.max(0, limit - used), ready: !!(appPassword && gmailUser) });
 
   if (!appPassword || !gmailUser) return fail(503, "Email isn't set up yet. Add the Gmail App Password in Supabase (Edge Functions → Secrets → GMAIL_APP_PASSWORD).");
-  if (used >= limit) return fail(429, `Today's limit of ${limit} emails is used up. Try again tomorrow.`, { limit, used, left: 0 });
+  if (limit != null && used >= limit) return fail(429, `Today's limit of ${limit} emails is used up. Try again tomorrow.`, { limit, used, left: 0 });
 
   const customerId = Number(body.customerId);
   const subject = typeof body.subject === "string" ? body.subject.trim() : "";
@@ -102,5 +103,5 @@ Deno.serve(async (req) => {
       : "";
     return fail(502, `Gmail didn't send it: ${error}.${hint}`);
   }
-  return reply(200, { ok: true, id: messageId, limit, used: used + 1, left: Math.max(0, limit - used - 1) });
+  return reply(200, { ok: true, id: messageId, limit, used: used + 1, left: limit == null ? null : Math.max(0, limit - used - 1) });
 });

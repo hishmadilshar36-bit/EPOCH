@@ -39,8 +39,8 @@ These rules are Row Level Security policies and database functions in Supabase, 
 On **Customers**, each customer has an **Email** button: pick a template (introduction, quotation, payment reminder, receipt, welcome or blank), edit it, and send. Every email is logged and shown under that customer.
 
 - Sent by the Supabase Edge Function `send-email` (`supabase/functions/send-email/index.ts`) from Epoch's **Gmail** account over SMTP (port 465). Gmail keeps a copy in its Sent folder.
-- Only to the email address saved on the customer, and at most **5 emails a day** for the whole team (Sri Lanka time).
-- Settings live in the `settings` table: `emailGmailUser` (the Gmail address that sends), `emailFrom`, `emailReplyTo` (customers' replies go here), `emailDailyLimit`.
+- Only to the email address saved on the customer. There's no daily limit in the panel (Gmail itself allows about 500 a day). To add one, put a number in the `emailDailyLimit` setting.
+- Settings live in the `settings` table: `emailGmailUser` (the Gmail address that sends), `emailFrom`, `emailReplyTo` (customers' replies go here), optional `emailDailyLimit`.
 - The Gmail **App Password** is the Supabase secret `GMAIL_APP_PASSWORD` (Edge Functions → Secrets). It needs 2-Step Verification on the Gmail account. Never put it in this repository.
 - Later, with your own domain, this can move to a service like Resend so emails come from e.g. `hello@yourdomain`.
 

@@ -351,7 +351,7 @@ async function emailComposer(c, plans) {
   tpl.onchange = fill; fill();
   const left = quota ? quota.left : null;
   const status = quota && !quota.ready ? h("div", { class: "error" }, "Email isn't set up yet: the Gmail App Password still needs adding in Supabase (Edge Functions → Secrets → GMAIL_APP_PASSWORD).")
-    : h("div", { class: "muted", style: "font-size:13px" }, left == null ? "" : `${left} of ${quota.limit} emails left today.`);
+    : h("div", { class: "muted", style: "font-size:13px" }, !quota ? "" : quota.limit == null ? `${quota.used} sent today.` : `${left} of ${quota.limit} emails left today.`);
   const send = h("button", { class: "btn primary small", type: "submit", disabled: left === 0 || (quota && !quota.ready) }, "Send email");
   box.append(h("form", { class: "form", onsubmit: async (ev) => {
       ev.preventDefault();
@@ -360,7 +360,7 @@ async function emailComposer(c, plans) {
       send.disabled = true; send.textContent = "Sending…";
       try {
         const r = await api("/emails/send", { method: "POST", body: { customerId: c.id, template: tpl.value, subject: subject.value, message: message.value } });
-        toast(`Email sent to ${c.email}. ${r.left} left today.`); await route();
+        toast(`Email sent to ${c.email}.` + (r.left != null ? ` ${r.left} left today.` : "")); await route();
       } catch (x) { toast(x.message); send.disabled = false; send.textContent = "Send email"; }
     } },
     h("div", { class: "full", style: "font-size:13px" }, h("b", {}, "To: "), `${c.name} <${c.email}>`),
