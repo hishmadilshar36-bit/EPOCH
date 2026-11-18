@@ -68,6 +68,7 @@ model Task {
   order      Float    @default(0)
   assigneeId Int?
   assignee   User?    @relation(fields: [assigneeId], references: [id], onDelete: SetNull)
+  dueDate    DateTime?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 }
@@ -83,6 +84,8 @@ model Customer {
   software    Software? @relation(fields: [softwareId], references: [id], onDelete: SetNull)
   ownerId     Int?
   owner       User?     @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  planId      Int?
+  plan        Plan?     @relation(fields: [planId], references: [id], onDelete: SetNull)
   dealType    String    @default("SUBSCRIPTION") // SUBSCRIPTION | ONE_TIME
   totalPrice  Int       @default(0) // full price for a one-time sale
   monthlyFee  Int       @default(0)
@@ -127,6 +130,23 @@ model Payment {
   recordedById Int?
   recordedBy   User?     @relation(fields: [recordedById], references: [id], onDelete: SetNull)
   createdAt    DateTime  @default(now())
+}
+
+// Subscription plans Epoch sells, built on top of a hosting package
+model Plan {
+  id           Int        @id @default(autoincrement())
+  name         String     @unique
+  bestFor      String     @default("")
+  includes     String     @default("") // one item per line
+  monthlyPrice Int        @default(0)
+  annualPrice  Int        @default(0)
+  setupFee     Int        @default(0)
+  hostingPlan  String     @default("") // e.g. "KDJ SG-SB-500"
+  hostingCost  Int        @default(0) // what Epoch pays per month for hosting
+  active       Boolean    @default(true)
+  order        Int        @default(0)
+  createdAt    DateTime   @default(now())
+  customers    Customer[]
 }
 
 model Setting {

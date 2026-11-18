@@ -40,7 +40,7 @@ const ENUMS = {
   taskStatus: ["TODO", "DOING", "DONE"],
   softwareStatus: ["READY", "IN_DEVELOPMENT", "PAUSED"],
   responsibility: ["Development", "Design", "Sales", "Support", "Video"],
-  customerType: ["Shop", "Restaurant", "Salon", "Clinic", "Other"],
+  customerType: ["Shop", "Restaurant", "Salon", "Clinic", "School", "Other"],
   stage: ["NEW", "CONTACTED", "INTERESTED", "QUOTED", "FREE_TRIAL", "ACTIVE", "SOLD", "LOST"],
   dealType: ["SUBSCRIPTION", "ONE_TIME"],
   paymentKind: ["SETUP", "MONTHLY", "INSTALLMENT", "FULL", "OTHER"],
@@ -248,7 +248,7 @@ api.post("/tasks", wrap(async (req, res) => {
   if (req.user.role !== "ADMIN") assigneeId = req.user.id; // members add tasks for themselves
   await userExists(assigneeId);
   const last = await prisma.task.findFirst({ where: { phase }, orderBy: { order: "desc" } });
-  const task = await prisma.task.create({ data: { title: str(b.title, "Task", { max: 300, required: true }), phase, assigneeId: assigneeId ?? null, notes: str(b.notes, "Notes", { max: 2000 }) || "", order: (last?.order || 0) + 1 }, include: taskInclude });
+  const task = await prisma.task.create({ data: { title: str(b.title, "Task", { max: 300, required: true }), phase, assigneeId: assigneeId ?? null, notes: str(b.notes, "Notes", { max: 2000 }) || "", dueDate: date(b.dueDate, "Due date") ?? null, order: (last?.order || 0) + 1 }, include: taskInclude });
   res.status(201).json(task);
 }));
 
@@ -261,7 +261,7 @@ api.patch("/tasks/:id", wrap(async (req, res) => {
   if (!isAdmin && task.assigneeId !== req.user.id) throw new HttpError(403, "You can only update tasks assigned to you.");
   const data = clean({ status: oneOf(b.status, "Status", ENUMS.taskStatus), notes: str(b.notes, "Notes", { max: 2000 }) });
   if (isAdmin) {
-    Object.assign(data, clean({ title: str(b.title, "Task", { max: 300 }), assigneeId: int(b.assigneeId, "Assignee", { min: 1, nullable: true }) }));
+    Object.assign(data, clean({ title: str(b.title, "Task", { max: 300 }), assigneeId: int(b.assigneeId, "Assignee", { min: 1, nullable: true }), dueDate: date(b.dueDate, "Due date") }));
     if (data.title === "") throw new HttpError(400, "Task is required.");
     if (b.phase !== undefined) { const p = int(b.phase, "Phase"); if (!PHASES.some((x) => x.n === p)) throw new HttpError(400, "Unknown phase."); data.phase = p; }
     await userExists(data.assigneeId);
@@ -313,13 +313,14 @@ api.delete("/assignments/:id", requireAdmin, wrap(async (req, res) => {
 }));
 
 // ---------- customers ----------
-const customerInclude = { software: { select: { id: true, name: true } }, owner: { select: { id: true, name: true } } };
+const customerInclude = { software: { select: { id: true, name: true } }, owner: { select: { id: true, name: true } }, plan: { select: { id: true, name: true, monthlyPrice: true } } };
 function customerData(b) {
   return clean({
     name: str(b.name, "Business name", { max: 150 }), contact: str(b.contact, "Contact person", { max: 150 }), phone: str(b.phone, "Phone", { max: 60 }),
     type: oneOf(b.type, "Type", ENUMS.customerType), stage: oneOf(b.stage, "Stage", ENUMS.stage),
     softwareId: int(b.softwareId, "Software", { min: 1, nullable: true }), ownerId: int(b.ownerId, "Handled by", { min: 1, nullable: true }),
     dealType: oneOf(b.dealType, "Deal type", ENUMS.dealType), totalPrice: int(b.totalPrice, "Full price"),
+    planId: int(b.planId, "Plan", { min: 1, nullable: true }),
     monthlyFee: int(b.monthlyFee, "Monthly fee"), startedAt: date(b.startedAt, "Start date"), trialEnds: date(b.trialEnds, "Free period end"),
     notes: str(b.notes, "Notes", { max: 3000 }),
   });
@@ -389,6 +390,35 @@ api.patch("/payments/:id", requireAdmin, wrap(async (req, res) => {
 }));
 api.delete("/payments/:id", requireAdmin, wrap(async (req, res) => {
   await prisma.payment.delete({ where: { id: int(req.params.id, "id", { min: 1 }) } });
+  res.json({ ok: true });
+}));
+
+// ---------- subscription plans (everyone reads; admin edits; hosting cost is admin-only) ----------
+function planData(b) {
+  const data = clean({
+    name: str(b.name, "Plan name", { max: 80 }), bestFor: str(b.bestFor, "Best for", { max: 200 }), includes: str(b.includes, "What's included", { max: 3000 }),
+    monthlyPrice: int(b.monthlyPrice, "Monthly price"), annualPrice: int(b.annualPrice, "Yearly price"), setupFee: int(b.setupFee, "Setup fee"),
+    hostingPlan: str(b.hostingPlan, "Hosting package", { max: 80 }), hostingCost: int(b.hostingCost, "Hosting cost"),
+    active: typeof b.active === "boolean" ? b.active : undefined, order: int(b.order, "Order"),
+  });
+  if (data.name === "") throw new HttpError(400, "Plan name is required.");
+  return data;
+}
+api.get("/plans", wrap(async (req, res) => {
+  const plans = await prisma.plan.findMany({ orderBy: [{ order: "asc" }, { monthlyPrice: "asc" }], include: { _count: { select: { customers: true } } } });
+  if (req.user.role !== "ADMIN") for (const p of plans) { delete p.hostingCost; delete p.hostingPlan; }
+  res.json(plans);
+}));
+api.post("/plans", requireAdmin, wrap(async (req, res) => {
+  const data = planData(req.body || {});
+  if (!data.name) throw new HttpError(400, "Plan name is required.");
+  res.status(201).json(await prisma.plan.create({ data }));
+}));
+api.patch("/plans/:id", requireAdmin, wrap(async (req, res) => {
+  res.json(await prisma.plan.update({ where: { id: int(req.params.id, "id", { min: 1 }) }, data: planData(req.body || {}) }));
+}));
+api.delete("/plans/:id", requireAdmin, wrap(async (req, res) => {
+  await prisma.plan.delete({ where: { id: int(req.params.id, "id", { min: 1 }) } });
   res.json({ ok: true });
 }));
 

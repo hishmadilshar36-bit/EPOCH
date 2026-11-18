@@ -1,51 +1,49 @@
 # Epoch Panel
 
-Epoch opened on 2 February 2025. The opening date lives in `COMPANY` at the top of `src/server.js`; the dashboard shows the company's age and counts down to each anniversary.
+Epoch opened on 2 February 2025. Team panel for Epoch: admin panel, team member panel, task board, customers, software assignments, subscription plans, customer payments and money split.
 
-Team panel for Epoch: admin panel, team member panel, software assignments, customers, payments and the 30-day task board.
+## How it runs
 
-- **Frontend:** plain HTML, CSS and JavaScript (`public/`)
-- **Backend:** Node.js + Express (`src/server.js`)
-- **Database:** Prisma with SQLite (`prisma/schema.prisma`, data in `prisma/epoch.db`)
+| Part | Where | Files |
+|---|---|---|
+| Pages (HTML, CSS, JavaScript) | **GitHub Pages** | `public/` |
+| Database, logins, permissions | **Supabase** project `epoch-panel` (`pghrlsctyifzpnqoghpw`) | managed in Supabase |
+| Team account actions (create login, reset password, disable, change own password) | **Supabase Edge Function** `team-accounts` | `supabase/functions/team-accounts/index.ts` |
 
-## Run it
+There is no server to keep running. On every push to `main`, `.github/workflows/static.yml` publishes `public/` to GitHub Pages.
+
+- `public/js/data.js` connects to Supabase (project URL and the **publishable** key, which is meant to be public).
+- `public/js/app.js` is the panel itself.
+- Never put the Supabase **secret / service role** key in any file in this repository.
+
+## Signing in
+
+Usernames stay the same (`hishma`, `hansa`, `ravindu`). Behind the scenes Supabase stores each login as `<username>@epoch.invalid`; nobody needs to type that.
+
+New members get a temporary password from Hishma (**Team accounts** page) and must choose their own at first sign-in.
+
+## Who can do what (enforced in Supabase)
+
+| | Hishma (admin) | Members |
+|---|---|---|
+| Task board | All tasks; add, edit, reassign, delete | Own tasks + whole-team tasks; change status and notes of own tasks; add tasks for themselves |
+| Customers, software, subscription plans | Everything | View; add and edit customers |
+| Customer payments, revenue, hosting costs | ✓ | Hidden |
+| Money split | Everything | Only their own payments, on My panel |
+| Team accounts | ✓ | |
+
+These rules are Row Level Security policies and database functions in Supabase, so they hold even if someone edits the page code in their browser.
+
+## Run the pages on this computer
+
+Any static file server works, for example:
 
 ```bash
-npm install
-npm run setup     # first time only: creates the database and team accounts
-npm start         # opens on http://localhost:3000
+cd public && python3 -m http.server 8080
 ```
 
-`npm run setup` writes each person's first-time password to `prisma/initial-passwords.txt`.
-Give each person only their own line, then delete the file. Everyone must choose a new
-password the first time they sign in.
+Then open http://localhost:8080. It uses the same live Supabase data as the online version.
 
-## Who can do what
+## Old version
 
-| | Hishma (admin) | Hansa, Ravindu (members) |
-|---|---|---|
-| Dashboard, task board, customers, software | ✓ | ✓ |
-| Update status and notes of own tasks | ✓ | ✓ |
-| Edit, reassign and delete any task | ✓ | |
-| Add, edit customers | ✓ | ✓ |
-| Delete customers | ✓ | |
-| Add software, assign people to software | ✓ | |
-| Payments and revenue figures | ✓ | |
-| Create team sign-ins, reset passwords, disable accounts | ✓ | |
-
-## Pages
-
-- **Dashboard:** plan day, free-period warnings, team progress, your current tasks, customer pipeline, and revenue for the admin.
-- **Task board:** the 30-day plan (Day 1 = 18 Nov 2026) in 7 phases plus "Current customers".
-- **Customers:** leads → free trial → active subscriber, with software, monthly fee and free-period end date.
-- **Software:** Clinic Medical System, E-commerce Website, Smart POS System and Business Website, with who handles development, design, sales, support and video.
-- **Payments (admin):** setup fees and monthly payments, mark as paid, and one click to add this month's charges for every active subscriber.
-- **Team (admin):** add members with a username and temporary password, change roles, reset passwords, disable access.
-
-## Notes
-
-- Passwords are stored as bcrypt hashes. Sign-in is locked for 15 minutes after 5 wrong attempts.
-- Sessions last 7 days. Changing your password signs out your other devices.
-- To put it online for the team, run it on a server behind HTTPS (for example a small VPS with Nginx).
-  To use PostgreSQL instead of SQLite, change `provider` in `prisma/schema.prisma` and `DATABASE_URL` in `.env`, then run `npx prisma db push`.
-- `npm run studio` opens Prisma Studio to view the raw data.
+`src/` (Express server) and `prisma/` (SQLite) are the earlier local version. All its data was copied to Supabase on 18 Nov 2026; the SQLite files in `prisma/` are kept only as backups and are no longer updated.

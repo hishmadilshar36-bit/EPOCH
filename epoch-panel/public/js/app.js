@@ -15,17 +15,7 @@ function h(tag, attrs, ...kids) {
 }
 function toast(msg) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), 3500); }
 
-async function api(path, { method = "GET", body } = {}) {
-  const opts = { method, headers: {} };
-  if (method !== "GET") { opts.headers["X-Epoch-Request"] = "1"; }
-  if (body !== undefined) { opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
-  const r = await fetch("/api" + path, opts);
-  const j = await r.json().catch(() => ({}));
-  if (r.status === 401) { location.replace("/"); throw new Error("Please sign in."); }
-  if (r.status === 403 && j.code === "MUST_CHANGE_PASSWORD") { location.hash = "#account"; throw new Error(j.error); }
-  if (!r.ok) throw new Error(j.error || "Something went wrong.");
-  return j;
-}
+// api() comes from data.js (Supabase)
 // Run an action, show errors as a toast, then optionally re-render
 async function act(fn, okMsg, rerender = true) {
   try { await fn(); if (okMsg) toast(okMsg); if (rerender) await route(); }
@@ -58,7 +48,8 @@ function confirmBtn(label, onConfirm) {
   };
   return b;
 }
-const numOrNull = (v) => (v === "" ? null : Number(v));
+// Select values → ids: numbers for software/customers/plans, text (uuid) for team members
+const numOrNull = (v) => (v === "" ? null : /^\d+$/.test(v) ? Number(v) : v);
 const isAdmin = () => S.me?.role === "ADMIN";
 const S = { me: null, users: [], open: null };
 
@@ -68,13 +59,13 @@ async function boot() {
   $("meName").textContent = S.me.name;
   $("meRole").textContent = isAdmin() ? "· Admin" : "";
   document.querySelectorAll("[data-admin]").forEach((a) => (a.hidden = !isAdmin()));
-  $("logout").onclick = async () => { await api("/logout", { method: "POST" }).catch(() => {}); location.replace("/"); };
+  $("logout").onclick = async () => { await api("/logout", { method: "POST" }).catch(() => {}); location.replace("index.html"); };
   window.addEventListener("hashchange", () => { S.open = null; route(); });
   if (!location.hash) location.hash = S.me.mustChangePassword ? "#account" : "#me";
   else route();
 }
 
-const PAGES = { me: pageMe, dashboard: pageDashboard, tasks: pageTasks, customers: pageCustomers, software: pageSoftware, payments: pagePayments, payouts: pagePayouts, team: pageTeam, account: pageAccount };
+const PAGES = { me: pageMe, dashboard: pageDashboard, tasks: pageTasks, customers: pageCustomers, software: pageSoftware, plans: pagePlans, payments: pagePayments, payouts: pagePayouts, team: pageTeam, account: pageAccount };
 const ADMIN_PAGES = ["payments", "payouts", "team"];
 async function route() {
   let page = location.hash.slice(1) || "me";
@@ -163,13 +154,32 @@ function moneyLine(c) {
   return h("div", { class: "money-line mono" }, h("span", { class: "paid" }, `Paid ${money(paid)}`), pending ? h("span", { class: "due" }, `Due ${money(pending)}`) : null,
     unbilled ? h("span", { class: "gap" }, `Not yet billed ${money(unbilled)}`) : null);
 }
-const priceText = (c) => c.dealType === "ONE_TIME" ? (c.totalPrice ? `${money(c.totalPrice)} one-time` : "One-time") : c.monthlyFee ? `${money(c.monthlyFee)} / month` : "—";
+const priceText = (c) => c.dealType === "ONE_TIME" ? (c.totalPrice ? `${money(c.totalPrice)} one-time` : "One-time") : (c.plan ? c.plan.name + " · " : "") + (c.monthlyFee ? `${money(c.monthlyFee)} / month` : c.plan ? "" : "—");
 
 // ---------- task board ----------
 const TF = { person: "me", hideDone: false }; // admin can switch person; members always see their own
 function canEditTask(t) { return isAdmin() || t.assigneeId === S.me.id; }
 const nextStatus = (s) => ({ TODO: "DOING", DOING: "DONE", DONE: "TODO" })[s];
 
+// Due-date label: Overdue / Today / Tomorrow / date
+function dueLabel(t) {
+  if (!t.dueDate) return null;
+  const d = daysUntil(t.dueDate);
+  if (t.status === "DONE") return { text: `Due ${fmtDate(t.dueDate)}`, cls: "" };
+  if (d < 0) return { text: `Overdue · was due ${fmtDate(t.dueDate)}`, cls: "due-late" };
+  if (d === 0) return { text: "Due today", cls: "due-soon" };
+  if (d === 1) return { text: "Due tomorrow", cls: "due-soon" };
+  return { text: `Due ${fmtDate(t.dueDate)}`, cls: "" };
+}
+function taskSubline(t, compact, phase) {
+  const due = dueLabel(t), parts = [];
+  if (due) parts.push(h("span", { class: due.cls }, due.text));
+  if (t.status === "DOING") parts.push(h("span", { style: "color:var(--warn)" }, "In progress"));
+  if (compact && phase) parts.push(phase.ongoing ? phase.title : `Days ${phase.from}–${phase.to} · ${phase.title}`);
+  else if (t.notes) parts.push(t.notes);
+  if (!parts.length) return null;
+  return h("small", {}, parts.flatMap((p, i) => (i ? [" · ", p] : [p])));
+}
 function taskRow(t, plan, { compact = false } = {}) {
   const open = S.open === "t" + t.id, can = canEditTask(t);
   const li = h("li", { class: "task" + (t.status === "DONE" ? " is-done" : "") });
@@ -177,7 +187,7 @@ function taskRow(t, plan, { compact = false } = {}) {
   li.append(h("div", { class: "trow" },
     h("button", { class: "stbtn", "data-s": t.status, disabled: !can, title: can ? `${TSTATUS[t.status]} · click for ${TSTATUS[nextStatus(t.status)]}` : TSTATUS[t.status], "aria-label": `${t.title}: ${TSTATUS[t.status]}`,
       onclick: () => act(() => api(`/tasks/${t.id}`, { method: "PATCH", body: { status: nextStatus(t.status) } })) }),
-    h("div", { class: "ttitle" }, t.title, compact && phase ? h("small", {}, phase.ongoing ? phase.title : `Days ${phase.from}–${phase.to} · ${phase.title}`) : t.status === "DOING" ? h("small", { style: "color:var(--warn)" }, "In progress" + (t.notes ? " · " + t.notes : "")) : t.notes ? h("small", {}, t.notes) : null),
+    h("div", { class: "ttitle" }, t.title, taskSubline(t, compact, phase)),
     h("span", { class: "chip" + (t.assigneeId === S.me.id ? " mine" : "") }, t.assignee?.name || "Whole team"),
     compact ? h("span") : h("button", { class: "more", "aria-expanded": String(open), "aria-label": "Details for " + t.title, onclick: () => { S.open = open ? null : "t" + t.id; route(); } }, open ? "▴" : "▾")));
   if (open && !compact) {
@@ -185,14 +195,15 @@ function taskRow(t, plan, { compact = false } = {}) {
     const assignee = h("select", { disabled: !isAdmin() }, userOptions(t.assigneeId, { none: "Whole team" }));
     const phaseSel = h("select", { disabled: !isAdmin() }, plan.phases.map((p) => h("option", { value: p.n, selected: p.n === t.phase }, p.ongoing ? p.title : `Days ${p.from}–${p.to}: ${p.title}`)));
     const status = h("select", { disabled: !can }, options(TSTATUS, t.status));
+    const due = h("input", { type: "date", value: ymd(t.dueDate), disabled: !isAdmin() });
     const notes = h("textarea", { disabled: !can, placeholder: "Links, progress, who you spoke to…" }, t.notes);
     const save = () => {
       const body = { status: status.value, notes: notes.value };
-      if (isAdmin()) Object.assign(body, { title: title.value, assigneeId: numOrNull(assignee.value), phase: Number(phaseSel.value) });
+      if (isAdmin()) Object.assign(body, { title: title.value, assigneeId: numOrNull(assignee.value), phase: Number(phaseSel.value), dueDate: due.value });
       act(() => api(`/tasks/${t.id}`, { method: "PATCH", body }), "Task saved");
     };
     li.append(h("div", { class: "tedit" }, h("div", { class: "form" },
-      field("Task", title, "full"), field("Assigned to", assignee), field("Phase", phaseSel), field("Status", status), field("Notes", notes, "full"),
+      field("Task", title, "full"), field("Assigned to", assignee), field("Phase", phaseSel), field("Status", status), field("Due date", due), field("Notes", notes, "full"),
       h("div", { class: "actions full" },
         !can ? h("span", { class: "muted", style: "font-size:12px" }, "Only the assignee or the admin can change this task.") : null,
         isAdmin() ? confirmBtn("Delete", () => act(() => api(`/tasks/${t.id}`, { method: "DELETE" }), "Task deleted")) : null,
@@ -239,7 +250,7 @@ async function pageTasks() {
         h("div", { class: "mono", style: "text-align:right" }, `${done}/${all.length}`, h("div", { class: "muted", style: "font-size:12px" }, "done"))));
     sec.append(shown.length ? h("ul", { class: "tasks" }, shown.map((t) => taskRow(t, plan))) : h("div", { class: "empty", style: "border-top:1px solid var(--line)" }, all.length ? "All done here." : TF.person === "me" ? "No tasks for you in this phase." : "No tasks here."));
     const title = h("input", { class: "inp", placeholder: isAdmin() ? `Add a task to ${p.title.toLowerCase()}` : "Add a task for yourself", "aria-label": "New task" });
-    const defaultAssignee = TF.person === "me" ? S.me.id : TF.person && TF.person !== "none" ? Number(TF.person) : null;
+    const defaultAssignee = TF.person === "me" ? S.me.id : TF.person && TF.person !== "none" ? TF.person : null;
     const assignSel = isAdmin() ? h("select", { class: "inp", "aria-label": "Assign to" }, userOptions(defaultAssignee, { none: "Whole team" })) : h("span");
     const add = () => { if (!title.value.trim()) return title.focus(); act(() => api("/tasks", { method: "POST", body: { title: title.value, phase: p.n, assigneeId: isAdmin() ? numOrNull(assignSel.value) : S.me.id } }), "Task added"); };
     title.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); add(); } });
@@ -251,22 +262,24 @@ async function pageTasks() {
 
 // ---------- customers ----------
 async function pageCustomers() {
-  const [customers, software] = await Promise.all([api("/customers"), api("/software")]);
+  const [customers, software, plans] = await Promise.all([api("/customers"), api("/software"), api("/plans")]);
   const swOptions = (val) => [h("option", { value: "" }, "Not chosen"), ...software.map((s) => h("option", { value: s.id, selected: s.id === val }, s.name))];
-  const typeOpts = (val) => ["Shop", "Restaurant", "Salon", "Clinic", "Other"].map((t) => h("option", { value: t, selected: t === val }, t));
+  const planOptions = (val) => [h("option", { value: "" }, "No plan"), ...plans.filter((p) => p.active || p.id === val).map((p) => h("option", { value: p.id, selected: p.id === val }, `${p.name} · ${money(p.monthlyPrice)}/mo`))];
+  const typeOpts = (val) => ["Shop", "Restaurant", "Salon", "Clinic", "School", "Other"].map((t) => h("option", { value: t, selected: t === val }, t));
   const root = h("div", { class: "stack" }, head("Customers", "Leads, free trials and paying subscribers"));
   root.append(...trialAlerts(customers.filter((c) => c.stage === "FREE_TRIAL")));
 
   const f = { name: h("input", { placeholder: "e.g. Green Leaf Café" }), contact: h("input", { placeholder: "Owner or manager" }), phone: h("input", { placeholder: "Phone / WhatsApp" }),
     type: h("select", {}, typeOpts("Shop")), softwareId: h("select", {}, swOptions(null)), ownerId: h("select", {}, userOptions(S.users.find((u) => u.username === "hansa")?.id ?? S.me.id)), stage: h("select", {}, options(STAGE, "NEW")),
-    dealType: h("select", {}, options(DEAL, "SUBSCRIPTION")), price: h("input", { type: "number", min: "0", step: "1000", placeholder: "0" }) };
+    dealType: h("select", {}, options(DEAL, "SUBSCRIPTION")), price: h("input", { type: "number", min: "0", step: "1000", placeholder: "0" }), planId: h("select", {}, planOptions(null)) };
   const priceLabel = h("span", {}, "Monthly fee (Rs.)");
   f.dealType.onchange = () => (priceLabel.textContent = f.dealType.value === "ONE_TIME" ? "Full price (Rs.)" : "Monthly fee (Rs.)");
+  f.planId.onchange = () => { const p = plans.find((x) => x.id === Number(f.planId.value)); if (p) { f.dealType.value = "SUBSCRIPTION"; f.dealType.onchange(); f.price.value = p.monthlyPrice; } };
   const addForm = h("form", { class: "card card-body form", onsubmit: (e) => { e.preventDefault(); if (!f.name.value.trim()) return f.name.focus();
     const price = Number(f.price.value) || 0, oneTime = f.dealType.value === "ONE_TIME";
-    act(() => api("/customers", { method: "POST", body: { name: f.name.value, contact: f.contact.value, phone: f.phone.value, type: f.type.value, softwareId: numOrNull(f.softwareId.value), ownerId: numOrNull(f.ownerId.value), stage: f.stage.value, dealType: f.dealType.value, totalPrice: oneTime ? price : 0, monthlyFee: oneTime ? 0 : price } }), "Customer added"); } },
+    act(() => api("/customers", { method: "POST", body: { name: f.name.value, contact: f.contact.value, phone: f.phone.value, type: f.type.value, softwareId: numOrNull(f.softwareId.value), ownerId: numOrNull(f.ownerId.value), stage: f.stage.value, dealType: f.dealType.value, totalPrice: oneTime ? price : 0, monthlyFee: oneTime ? 0 : price, planId: numOrNull(f.planId.value) } }), "Customer added"); } },
     field("Business name", f.name), field("Contact person", f.contact), field("Phone", f.phone), field("Type", f.type), field("Software", f.softwareId), field("Handled by", f.ownerId), field("Stage", f.stage),
-    field("Deal", f.dealType), field(priceLabel, f.price),
+    field("Subscription plan", f.planId), field("Deal", f.dealType), field(priceLabel, f.price),
     h("button", { class: "btn primary", type: "submit" }, "Add customer"));
   root.append(addForm);
 
@@ -284,13 +297,15 @@ async function pageCustomers() {
     if (open) {
       const e = { name: h("input", { value: c.name }), contact: h("input", { value: c.contact }), phone: h("input", { value: c.phone }), type: h("select", {}, typeOpts(c.type)),
         softwareId: h("select", {}, swOptions(c.softwareId)), ownerId: h("select", {}, userOptions(c.ownerId)), stage: h("select", {}, options(STAGE, c.stage)),
+        planId: h("select", {}, planOptions(c.planId)),
         dealType: h("select", {}, options(DEAL, c.dealType)), totalPrice: h("input", { type: "number", min: "0", step: "1000", value: c.totalPrice }),
         monthlyFee: h("input", { type: "number", min: "0", step: "100", value: c.monthlyFee }), startedAt: h("input", { type: "date", value: ymd(c.startedAt) }), trialEnds: h("input", { type: "date", value: ymd(c.trialEnds) }),
         notes: h("textarea", {}, c.notes) };
-      const save = () => act(() => api(`/customers/${c.id}`, { method: "PATCH", body: { name: e.name.value, contact: e.contact.value, phone: e.phone.value, type: e.type.value, softwareId: numOrNull(e.softwareId.value), ownerId: numOrNull(e.ownerId.value), stage: e.stage.value, dealType: e.dealType.value, totalPrice: Number(e.totalPrice.value) || 0, monthlyFee: Number(e.monthlyFee.value) || 0, startedAt: e.startedAt.value, trialEnds: e.trialEnds.value, notes: e.notes.value } }), "Customer saved");
+      e.planId.onchange = () => { const p = plans.find((x) => x.id === Number(e.planId.value)); if (p) { e.dealType.value = "SUBSCRIPTION"; e.monthlyFee.value = p.monthlyPrice; } };
+      const save = () => act(() => api(`/customers/${c.id}`, { method: "PATCH", body: { name: e.name.value, contact: e.contact.value, phone: e.phone.value, type: e.type.value, softwareId: numOrNull(e.softwareId.value), ownerId: numOrNull(e.ownerId.value), stage: e.stage.value, planId: numOrNull(e.planId.value), dealType: e.dealType.value, totalPrice: Number(e.totalPrice.value) || 0, monthlyFee: Number(e.monthlyFee.value) || 0, startedAt: e.startedAt.value, trialEnds: e.trialEnds.value, notes: e.notes.value } }), "Customer saved");
       tbody.append(h("tr", {}, h("td", { colspan: "7", style: "background:var(--surface-2)" }, h("div", { class: "form" },
         field("Business name", e.name), field("Contact person", e.contact), field("Phone", e.phone), field("Type", e.type), field("Software", e.softwareId), field("Handled by", e.ownerId), field("Stage", e.stage),
-        field("Deal", e.dealType), field("Full price (one-time, Rs.)", e.totalPrice), field("Monthly fee (subscription, Rs.)", e.monthlyFee), field("Customer since", e.startedAt), field("Free period ends", e.trialEnds), field("Notes", e.notes, "full"),
+        field("Subscription plan", e.planId), field("Deal", e.dealType), field("Full price (one-time, Rs.)", e.totalPrice), field("Monthly fee (subscription, Rs.)", e.monthlyFee), field("Customer since", e.startedAt), field("Free period ends", e.trialEnds), field("Notes", e.notes, "full"),
         h("div", { class: "actions full" }, isAdmin() ? confirmBtn("Delete customer", () => act(() => api(`/customers/${c.id}`, { method: "DELETE" }), "Customer deleted")) : null, h("button", { class: "btn primary small", onclick: save }, "Save"))))));
     }
   }
@@ -328,7 +343,7 @@ async function pageSoftware() {
     if (isAdmin()) {
       const u = h("select", { class: "inp", "aria-label": "Team member" }, S.users.filter((x) => x.active).map((x) => h("option", { value: x.id }, x.name)));
       const r = h("select", { class: "inp", "aria-label": "Responsibility" }, ["Development", "Design", "Sales", "Support", "Video"].map((x) => h("option", { value: x }, x)));
-      body.append(h("div", { class: "actions", style: "justify-content:flex-start" }, u, r, h("button", { class: "btn small primary", onclick: () => act(() => api(`/software/${sw.id}/assignments`, { method: "POST", body: { userId: Number(u.value), responsibility: r.value } }), "Assigned") }, "Assign"),
+      body.append(h("div", { class: "actions", style: "justify-content:flex-start" }, u, r, h("button", { class: "btn small primary", onclick: () => act(() => api(`/software/${sw.id}/assignments`, { method: "POST", body: { userId: u.value, responsibility: r.value } }), "Assigned") }, "Assign"),
         editing ? null : h("button", { class: "btn small", style: "margin-left:auto", onclick: () => { S.open = "s" + sw.id; route(); } }, "Edit")));
     }
     card.append(body); grid.append(card);
@@ -392,6 +407,44 @@ async function pagePayments() {
   root.append(h("div", { class: "card" }, h("div", { class: "card-head" }, h("h2", {}, `Payment history (${payments.length})`)),
     payments.length ? h("div", { class: "table-wrap" }, h("table", {}, h("thead", {}, h("tr", {}, ["Date", "Customer", "For", "Amount", "Method", "Status", ""].map((x, i) => h("th", { class: i === 3 ? "num" : "" }, x)))), h("tbody", {}, rows)))
       : h("div", { class: "empty" }, customers.length ? "No payments recorded yet." : "Add a customer first, then record their payments here.")));
+  return root;
+}
+
+// ---------- subscription plans ----------
+async function pagePlans() {
+  const plans = await api("/plans");
+  const root = h("div", { class: "stack" }, head("Subscription plans", "Monthly plans Epoch sells for websites. Each includes hosting, so the customer never deals with a hosting company."));
+  const card = (p) => {
+    const editing = S.open === "p" + p.id;
+    const lines = (p.includes || "").split("\n").map((s) => s.trim()).filter(Boolean);
+    const body = h("div", { class: "card-body" },
+      h("div", { class: "price mono" }, money(p.monthlyPrice), h("span", {}, " / month")),
+      h("div", { class: "muted", style: "font-size:13px" }, [p.annualPrice ? `or ${money(p.annualPrice)} / year` : "", p.setupFee ? `Setup ${money(p.setupFee)}` : "No setup fee"].filter(Boolean).join(" · ")),
+      p.bestFor ? h("div", {}, h("b", {}, "Best for: "), p.bestFor) : null,
+      lines.length ? h("ul", {}, lines.map((l) => h("li", {}, l))) : null,
+      isAdmin() ? h("div", { class: "cost mono" }, `Hosting: ${p.hostingPlan || "—"} · ${money(p.hostingCost)}/mo`, h("br"), `Epoch keeps ${money(p.monthlyPrice - p.hostingCost)}/mo before work time`) : null,
+      h("div", { class: "muted", style: "font-size:12px" }, `${p._count.customers} customer${p._count.customers === 1 ? "" : "s"}${p.active ? "" : " · Not on sale"}`));
+    if (isAdmin() && !editing) body.append(h("div", { class: "actions" }, h("button", { class: "btn small", onclick: () => { S.open = "p" + p.id; route(); } }, "Edit")));
+    if (editing) {
+      const e = { name: h("input", { value: p.name }), bestFor: h("input", { value: p.bestFor }), monthlyPrice: h("input", { type: "number", min: "0", step: "100", value: p.monthlyPrice }),
+        annualPrice: h("input", { type: "number", min: "0", step: "1000", value: p.annualPrice }), setupFee: h("input", { type: "number", min: "0", step: "1000", value: p.setupFee }),
+        hostingPlan: h("input", { value: p.hostingPlan }), hostingCost: h("input", { type: "number", min: "0", value: p.hostingCost }), includes: h("textarea", { rows: "7" }, p.includes),
+        active: h("select", {}, h("option", { value: "1", selected: p.active }, "On sale"), h("option", { value: "0", selected: !p.active }, "Not on sale")) };
+      body.replaceChildren(h("div", { class: "form", style: "grid-template-columns:1fr 1fr" },
+        field("Plan name", e.name, "full"), field("Best for", e.bestFor, "full"), field("Monthly (Rs.)", e.monthlyPrice), field("Yearly (Rs.)", e.annualPrice), field("Setup fee (Rs.)", e.setupFee), field("Status", e.active),
+        field("Hosting package", e.hostingPlan), field("Hosting cost / month (Rs.)", e.hostingCost), field("What's included (one per line)", e.includes, "full"),
+        h("div", { class: "actions full" }, confirmBtn("Delete", () => act(() => api(`/plans/${p.id}`, { method: "DELETE" }), "Plan deleted")),
+          h("button", { class: "btn small", onclick: () => { S.open = null; route(); } }, "Cancel"),
+          h("button", { class: "btn primary small", onclick: () => act(async () => { await api(`/plans/${p.id}`, { method: "PATCH", body: { name: e.name.value, bestFor: e.bestFor.value, monthlyPrice: Number(e.monthlyPrice.value) || 0, annualPrice: Number(e.annualPrice.value) || 0, setupFee: Number(e.setupFee.value) || 0, hostingPlan: e.hostingPlan.value, hostingCost: Number(e.hostingCost.value) || 0, includes: e.includes.value, active: e.active.value === "1" } }); S.open = null; }, "Plan saved") }, "Save"))));
+    }
+    return h("div", { class: "card plan" + (p.active ? "" : " muted") }, h("div", { class: "card-head" }, h("h2", {}, p.name)), body);
+  };
+  root.append(plans.length ? h("div", { class: "plans" }, plans.map(card)) : h("div", { class: "card empty" }, "No plans yet."));
+  if (isAdmin()) {
+    const n = h("input", { placeholder: "e.g. School" }), m = h("input", { type: "number", min: "0", step: "100", placeholder: "0" });
+    root.append(h("form", { class: "card card-body form", onsubmit: (ev) => { ev.preventDefault(); if (!n.value.trim()) return n.focus(); act(() => api("/plans", { method: "POST", body: { name: n.value, monthlyPrice: Number(m.value) || 0, order: plans.length + 1 } }), "Plan added"); } },
+      field("New plan name", n), field("Monthly price (Rs.)", m), h("button", { class: "btn primary", type: "submit" }, "Add plan")));
+  }
   return root;
 }
 
@@ -506,8 +559,10 @@ async function pageAccount() {
   const form = h("form", { class: "card card-body form", style: "max-width:520px;grid-template-columns:1fr", onsubmit: async (e) => {
     e.preventDefault(); err.hidden = true;
     if (np.value !== np2.value) { err.textContent = "The new passwords don't match."; err.hidden = false; return; }
+    const btn = e.submitter; if (btn) { btn.disabled = true; btn.textContent = "Changing…"; }
     try { await api("/me/password", { method: "POST", body: { currentPassword: cur.value, newPassword: np.value } }); S.me.mustChangePassword = false; toast("Password changed"); location.hash = "#me"; }
     catch (x) { err.textContent = x.message; err.hidden = false; }
+    finally { if (btn) { btn.disabled = false; btn.textContent = "Change password"; } }
   } }, err, field(S.me.mustChangePassword ? "Temporary password" : "Current password", cur), field("New password (at least 8 characters)", np), field("Repeat new password", np2), h("div", { class: "actions" }, h("button", { class: "btn primary", type: "submit" }, "Change password")));
   return h("div", { class: "stack" }, head("My account", `${S.me.name} · signed in as ${S.me.username}${isAdmin() ? " · Admin" : ""}`),
     S.me.mustChangePassword ? h("div", { class: "alert" }, h("div", {}, h("b", {}, "Choose your own password. "), "You signed in with a temporary password. Set a new one to open the rest of the panel.")) : null,
