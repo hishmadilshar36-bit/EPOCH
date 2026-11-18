@@ -22,6 +22,11 @@ Usernames stay the same (`hishma`, `hansa`, `ravindu`). Behind the scenes Supaba
 
 New members get a temporary password from Hishma (**Team accounts** page) and must choose their own at first sign-in.
 
+## Two places
+
+- **Workplace** (`app.html`): where everyone works, Hishma included, with the same view as every member: My panel, own tasks, the team's tasks for today (with who has finished), customers, software and plans.
+- **Admin panel** (`admin.html`): admins only, opened from the **Open admin panel** button in the workplace. Overview with money, assigning tasks to anyone, customers with payments, customer payments, money split, team accounts, software and plan setup. Anyone else who opens it is sent back to the workplace.
+
 ## Who can do what (enforced in Supabase)
 
 | | Hishma (admin) | Members |

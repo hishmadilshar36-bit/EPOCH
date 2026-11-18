@@ -97,7 +97,8 @@ async function loadMe() {
   ME = me;
   return me;
 }
-const admin = () => ME?.role === "ADMIN";
+// Admin data (money, hosting costs, all tasks' controls) only in the admin panel (admin.html)
+const admin = () => ME?.role === "ADMIN" && document.body?.dataset.mode === "admin";
 
 // ---------- the api() the pages call ----------
 async function api(path, { method = "GET", body } = {}) {

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Admin · Epoch Panel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="favicon.png" type="image/png">
+</head>
+<body data-mode="admin">
+<div class="shell">
+  <aside class="side">
+    <div class="brand"><span class="mark"><img src="img/epoch-mark.png" alt=""></span><span>EPOCH<small>Admin panel</small></span></div>
+    <nav class="nav" id="nav">
+      <span class="nav-label">Admin</span>
+      <a href="#dashboard" data-page="dashboard">Overview</a>
+      <a href="#tasks" data-page="tasks">Assign tasks</a>
+      <a href="#customers" data-page="customers">Customers</a>
+      <a href="#payments" data-page="payments">Customer payments</a>
+      <a href="#payouts" data-page="payouts">Money split</a>
+      <a href="#team" data-page="team">Team accounts</a>
+      <span class="nav-label">Setup</span>
+      <a href="#software" data-page="software">Software</a>
+      <a href="#plans" data-page="plans">Subscription plans</a>
+    </nav>
+    <a class="switch-panel" id="switchPanel" href="app.html">← Back to my workplace</a>
+    <div class="me"><span><b id="meName">…</b> <span id="meRole"></span></span><button id="logout" type="button">Sign out</button></div>
+  </aside>
+  <main class="main" id="main" tabindex="-1"></main>
+</div>
+<div class="toast" id="toast" role="status" hidden></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="js/data.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

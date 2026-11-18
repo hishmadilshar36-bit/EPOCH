@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="css/style.css">
 <link rel="icon" href="favicon.png" type="image/png">
 </head>
-<body>
+<body data-mode="work">
 <div class="shell">
   <aside class="side">
     <div class="brand"><span class="mark"><img src="img/epoch-mark.png" alt=""></span><span>EPOCH<small>Team panel · since 2 Feb 2025</small></span></div>
@@ -19,15 +19,12 @@
       <a href="#account" data-page="account">My account</a>
       <span class="nav-label">Team</span>
       <a href="#dashboard" data-page="dashboard">Dashboard</a>
-      <a href="#tasks" data-page="tasks">Task board</a>
+      <a href="#tasks" data-page="tasks">My tasks</a>
       <a href="#customers" data-page="customers">Customers</a>
       <a href="#software" data-page="software">Software</a>
       <a href="#plans" data-page="plans">Subscription plans</a>
-      <span class="nav-label" data-admin hidden>Admin</span>
-      <a href="#payments" data-page="payments" data-admin hidden>Customer payments</a>
-      <a href="#payouts" data-page="payouts" data-admin hidden>Money split</a>
-      <a href="#team" data-page="team" data-admin hidden>Team accounts</a>
     </nav>
+    <a class="switch-panel" id="switchPanel" href="admin.html" hidden>Open admin panel →</a>
     <div class="me"><span><b id="meName">…</b> <span id="meRole"></span></span><button id="logout" type="button">Sign out</button></div>
   </aside>
   <main class="main" id="main" tabindex="-1"></main>

@@ -54,6 +54,10 @@ button{cursor:pointer}
 .anniv b{font-family:var(--f-display);font-size:16px}
 .anniv-next{font-size:13px;color:var(--accent)}
 .anniv.today{background:var(--accent-soft)}
+.switch-panel{display:block;margin:4px 4px 0;padding:8px 10px;border:1px solid var(--side-active);border-radius:7px;color:#fff;text-decoration:none;font-weight:600;font-size:13px;text-align:center}
+.switch-panel:hover{background:var(--side-active)}
+body[data-mode="admin"] .side{background:#080d18;border-right:4px solid #0d47a1}
+body[data-mode="admin"] .side .brand small{color:#8fb0ff;font-weight:700;letter-spacing:.14em;text-transform:uppercase}
 .nav-label{font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--side-fg);opacity:.6;padding:12px 10px 4px}
 .nav-label:first-child{padding-top:0}
 .money-line{display:flex;gap:2px 14px;flex-wrap:wrap;font-size:12px}

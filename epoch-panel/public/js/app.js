@@ -50,26 +50,37 @@ function confirmBtn(label, onConfirm) {
 }
 // Select values → ids: numbers for software/customers/plans, text (uuid) for team members
 const numOrNull = (v) => (v === "" ? null : /^\d+$/.test(v) ? Number(v) : v);
-const isAdmin = () => S.me?.role === "ADMIN";
+// Two places: the workplace (app.html, same view for everyone, Hishma included)
+// and the admin panel (admin.html, admins only). Admin tools only show in the admin panel.
+const MODE = document.body.dataset.mode === "admin" ? "admin" : "work";
+const isAdminUser = () => S.me?.role === "ADMIN";
+const isAdmin = () => isAdminUser() && MODE === "admin";
 const S = { me: null, users: [], open: null };
 
 // ---------- shell ----------
 async function boot() {
   try { S.me = (await api("/me")).user; } catch { return; }
   $("meName").textContent = S.me.name;
-  $("meRole").textContent = isAdmin() ? "· Admin" : "";
-  document.querySelectorAll("[data-admin]").forEach((a) => (a.hidden = !isAdmin()));
+  if (MODE === "admin" && (!isAdminUser() || S.me.mustChangePassword)) { location.replace("app.html" + (S.me.mustChangePassword ? "#account" : "")); return; }
+  $("meRole").textContent = isAdminUser() ? "· Admin" : "";
+  const sw = $("switchPanel");
+  if (sw) sw.hidden = !isAdminUser();
   $("logout").onclick = async () => { await api("/logout", { method: "POST" }).catch(() => {}); location.replace("index.html"); };
   window.addEventListener("hashchange", () => { S.open = null; route(); });
-  if (!location.hash) location.hash = S.me.mustChangePassword ? "#account" : "#me";
+  if (!location.hash) location.hash = S.me.mustChangePassword ? "#account" : MODE === "admin" ? "#dashboard" : "#me";
   else route();
 }
 
 const PAGES = { me: pageMe, dashboard: pageDashboard, tasks: pageTasks, customers: pageCustomers, software: pageSoftware, plans: pagePlans, payments: pagePayments, payouts: pagePayouts, team: pageTeam, account: pageAccount };
-const ADMIN_PAGES = ["payments", "payouts", "team"];
+// Which pages each place offers
+const MODE_PAGES = {
+  work: ["me", "account", "dashboard", "tasks", "customers", "software", "plans"],
+  admin: ["dashboard", "tasks", "customers", "payments", "payouts", "team", "software", "plans"],
+};
 async function route() {
-  let page = location.hash.slice(1) || "me";
-  if (!PAGES[page] || (ADMIN_PAGES.includes(page) && !isAdmin())) page = "me";
+  const home = MODE === "admin" ? "dashboard" : "me";
+  let page = location.hash.slice(1) || home;
+  if (!PAGES[page] || !MODE_PAGES[MODE].includes(page)) page = home;
   if (S.me.mustChangePassword) page = "account";
   document.querySelectorAll("#nav a").forEach((a) => a.toggleAttribute("aria-current", false) || (a.dataset.page === page && a.setAttribute("aria-current", "page")));
   const main = $("main");
@@ -96,13 +107,32 @@ function trialAlerts(trials) {
   });
 }
 
+// Everyone's tasks due today, grouped by person (visible to the whole team)
+function todaysTasksCard(tasks) {
+  const today = todayYMD();
+  const due = tasks.filter((t) => ymd(t.dueDate) === today);
+  const people = S.users.filter((u) => u.active);
+  const groups = [...people.map((u) => ({ name: u.name, me: u.id === S.me.id, list: due.filter((t) => t.assigneeId === u.id) })),
+    { name: "Whole team", me: false, list: due.filter((t) => !t.assigneeId) }].filter((g) => g.list.length || g.name !== "Whole team");
+  const done = due.filter((t) => t.status === "DONE").length;
+  return h("div", { class: "card" },
+    h("div", { class: "card-head" }, h("h2", {}, "Today's tasks for the team"), h("span", { class: "muted mono" }, `${done}/${due.length} done · ${fmtDate(today)}`)),
+    due.length ? h("div", { class: "grid g3", style: "padding:12px" }, groups.map((g) => h("div", { class: "card", style: g.me ? "border-color:var(--accent)" : "" },
+      h("div", { class: "card-head", style: "padding:10px 14px" }, h("b", {}, g.me ? `${g.name} (you)` : g.name),
+        h("span", { class: "muted mono", style: "font-size:12px" }, `${g.list.filter((t) => t.status === "DONE").length}/${g.list.length}`)),
+      g.list.length ? h("ul", { class: "tasks", style: "border-top:0" }, sortTasks(g.list).map((t) => taskRow(t, { compact: true, showStatus: true })))
+        : h("div", { class: "empty", style: "padding:10px 14px;font-size:13px" }, "Nothing due today."))))
+      : h("div", { class: "empty" }, isAdmin() ? "No tasks due today. Add them on the Task board with today's date." : "No tasks due today."));
+}
+
 // ---------- dashboard ----------
 async function pageDashboard() {
   const [sum, tasks] = await Promise.all([api("/summary"), api("/tasks")]);
-  const root = h("div", { class: "stack" }, head(`Hello, ${S.me.name}`, todayLong()));
+  const root = h("div", { class: "stack" }, head(MODE === "admin" ? "Admin overview" : `Hello, ${S.me.name}`, todayLong()));
   root.append(anniversaryCard(COMPANY));
+  root.append(todaysTasksCard(tasks));
   root.append(...trialAlerts(sum.trials));
-  if (sum.money) root.append(moneyKpis(sum.money));
+  if (sum.money && isAdmin()) root.append(moneyKpis(sum.money));
   const pct = sum.tasks.total ? Math.round((sum.tasks.done / sum.tasks.total) * 100) : 0;
   root.append(h("div", { class: "card" }, h("div", { class: "card-head" }, h("h2", {}, "Team progress"), h("span", { class: "muted mono" }, `${sum.tasks.done}/${sum.tasks.total} tasks · ${pct}%`)),
     h("div", { class: "grid g3", style: "padding:12px" }, sum.people.map((p) => h("div", { class: "card person" },
@@ -174,14 +204,15 @@ function taskSubline(t, compact) {
   if (!parts.length) return null;
   return h("small", {}, parts.flatMap((p, i) => (i ? [" · ", p] : [p])));
 }
-function taskRow(t, { compact = false } = {}) {
+function taskRow(t, { compact = false, showStatus = false } = {}) {
   const open = S.open === "t" + t.id, can = canEditTask(t);
   const li = h("li", { class: "task" + (t.status === "DONE" ? " is-done" : "") });
   li.append(h("div", { class: "trow" },
     h("button", { class: "stbtn", "data-s": t.status, disabled: !can, title: can ? `${TSTATUS[t.status]} · click for ${TSTATUS[nextStatus(t.status)]}` : TSTATUS[t.status], "aria-label": `${t.title}: ${TSTATUS[t.status]}`,
       onclick: () => act(() => api(`/tasks/${t.id}`, { method: "PATCH", body: { status: nextStatus(t.status) } })) }),
     h("div", { class: "ttitle" }, t.title, taskSubline(t, compact)),
-    h("span", { class: "chip" + (t.assigneeId === S.me.id ? " mine" : "") }, t.assignee?.name || "Whole team"),
+    showStatus ? h("span", { class: "pill " + ({ DONE: "done", DOING: "PENDING", TODO: "next" })[t.status] }, ({ DONE: "Done", DOING: "In progress", TODO: "Not started" })[t.status])
+      : h("span", { class: "chip" + (t.assigneeId === S.me.id ? " mine" : "") }, t.assignee?.name || "Whole team"),
     compact ? h("span") : h("button", { class: "more", "aria-expanded": String(open), "aria-label": "Details for " + t.title, onclick: () => { S.open = open ? null : "t" + t.id; route(); } }, open ? "▴" : "▾")));
   if (open && !compact) {
     const title = h("input", { value: t.title, disabled: !isAdmin() });
@@ -216,7 +247,7 @@ function taskGroups(list) {
 
 async function pageTasks() {
   const tasks = await api("/tasks");
-  const root = h("div", { class: "stack" }, head("Task board", isAdmin() ? "Add tasks and assign them to the team. Each person sees their own tasks." : "Your tasks from Hishma. Tick the circle as you work through them."));
+  const root = h("div", { class: "stack" }, head(MODE === "admin" ? "Assign tasks" : "My tasks", isAdmin() ? "Add tasks and assign them to the team. Each person sees their own tasks." : "Your tasks from Hishma. Tick the circle as you work through them."));
 
   // Admin: add and assign a task
   if (isAdmin()) {
@@ -562,6 +593,7 @@ async function pagePayouts() {
 // ---------- my panel (everyone, including the admin) ----------
 async function pageMe() {
   const [tasks, software, payouts] = await Promise.all([api("/tasks"), api("/software"), api("/me/payouts")]);
+  const teamToday = todaysTasksCard(tasks);
   const mine = tasks.filter((t) => t.assigneeId === S.me.id);
   const open = mine.filter((t) => t.status !== "DONE"), done = mine.length - open.length;
   const received = payouts.filter((p) => p.status === "PAID").reduce((s, p) => s + p.amount, 0), owed = payouts.filter((p) => p.status === "PENDING").reduce((s, p) => s + p.amount, 0);
@@ -570,6 +602,7 @@ async function pageMe() {
   root.append(h("div", { class: "grid g4" }, kpi(String(open.length), "Open tasks"), kpi(`${done}/${mine.length}`, "Tasks done"), kpi(money(received), "Paid to you"), kpi(money(owed), "Owed to you")));
   root.append(h("div", { class: "card" }, h("div", { class: "card-head" }, h("h2", {}, "My open tasks"), h("a", { href: "#tasks", class: "btn small" }, "Open task board")),
     open.length ? h("ul", { class: "tasks", style: "border-top:0" }, sortTasks(open).map((t) => taskRow(t, { compact: true }))) : h("div", { class: "empty" }, "No open tasks. Nice work.")));
+  root.append(teamToday);
   root.append(h("div", { class: "card" }, h("div", { class: "card-head" }, h("h2", {}, "My software")),
     roles.length ? h("div", { class: "card-body assign" }, roles.map((x) => h("span", { class: "chip mine" }, `${x.sw} · ${x.r}`))) : h("div", { class: "empty" }, "You're not assigned to any software yet.")));
   root.append(h("div", { class: "card" }, h("div", { class: "card-head" }, h("h2", {}, "My payments from Epoch")),
