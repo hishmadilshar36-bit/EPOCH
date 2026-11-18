@@ -85,13 +85,8 @@ async function route() {
 }
 const head = (title, sub, ...right) => h("div", { class: "page-head" }, h("div", {}, h("h1", {}, title), sub ? h("p", {}, sub) : null), right.length ? h("div", { class: "actions" }, right) : null);
 
-// ---------- plan helpers ----------
-function dayNum(start) { if (!start) return null; return Math.round((todayUTC() - Date.parse(start + "T00:00:00Z")) / 864e5) + 1; }
-function phaseDates(p, start) {
-  if (p.ongoing || !start) return p.ongoing ? "Alongside the plan" : "";
-  const s = Date.parse(start + "T00:00:00Z"), f = (d) => new Date(s + (d - 1) * 864e5).toLocaleDateString(undefined, { day: "numeric", month: "short", timeZone: "UTC" });
-  return `${f(p.from)} – ${f(p.to)}`;
-}
+// ---------- helpers ----------
+const todayLong = () => new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 function trialAlerts(trials) {
   return trials.map((c) => {
     const left = c.trialEnds ? daysUntil(c.trialEnds) : null;
@@ -103,11 +98,9 @@ function trialAlerts(trials) {
 
 // ---------- dashboard ----------
 async function pageDashboard() {
-  const [sum, plan, tasks] = await Promise.all([api("/summary"), api("/plan"), api("/tasks")]);
-  const dn = dayNum(plan.start);
-  const dayTxt = dn == null ? "Plan start date not set" : dn < 1 ? `The 30-day plan starts in ${1 - dn} day${1 - dn === 1 ? "" : "s"} (${fmtDate(plan.start)})` : dn > 30 ? "The 30-day plan is finished" : `Day ${dn} of the 30-day plan`;
-  const root = h("div", { class: "stack" }, head(`Hello, ${S.me.name}`, dayTxt));
-  if (plan.company) root.append(anniversaryCard(plan.company));
+  const [sum, tasks] = await Promise.all([api("/summary"), api("/tasks")]);
+  const root = h("div", { class: "stack" }, head(`Hello, ${S.me.name}`, todayLong()));
+  root.append(anniversaryCard(COMPANY));
   root.append(...trialAlerts(sum.trials));
   if (sum.money) root.append(moneyKpis(sum.money));
   const pct = sum.tasks.total ? Math.round((sum.tasks.done / sum.tasks.total) * 100) : 0;
@@ -116,9 +109,9 @@ async function pageDashboard() {
       h("b", {}, p.name), h("span", { class: "muted", style: "font-size:12px" }, p.title || (p.role === "ADMIN" ? "Admin" : "Team member")),
       h("div", { class: "bar" }, h("b", { style: `width:${p.total ? (p.done / p.total) * 100 : 0}%` })),
       h("span", { class: "muted mono", style: "font-size:12px" }, `${p.done}/${p.total} done · ${p.doing} in progress`))))));
-  const mine = tasks.filter((t) => t.assigneeId === S.me.id && t.status !== "DONE" && (t.phase === 0 || dn == null || plan.phases.find((p) => p.n === t.phase)?.from <= Math.max(dn, 1) + 2));
+  const mine = sortTasks(tasks.filter((t) => t.assigneeId === S.me.id && t.status !== "DONE"));
   root.append(h("div", { class: "card" }, h("div", { class: "card-head" }, h("h2", {}, "Your tasks now"), h("a", { href: "#tasks", class: "btn small" }, "Open task board")),
-    mine.length ? h("ul", { class: "tasks", style: "border-top:0" }, mine.map((t) => taskRow(t, plan, { compact: true }))) : h("div", { class: "empty" }, "Nothing due right now.")));
+    mine.length ? h("ul", { class: "tasks", style: "border-top:0" }, mine.map((t) => taskRow(t, { compact: true }))) : h("div", { class: "empty" }, "Nothing due right now.")));
   root.append(h("div", { class: "card" }, h("div", { class: "card-head" }, h("h2", {}, "Customer pipeline"), h("a", { href: "#customers", class: "btn small" }, "Open customers")),
     h("div", { class: "grid", style: "grid-template-columns:repeat(auto-fit,minmax(110px,1fr));padding:12px" },
       Object.entries(sum.pipeline).map(([k, v]) => h("div", { class: "kpi card" }, h("div", { class: "v mono" }, String(v)), h("div", { class: "l" }, STAGE[k]))))));
@@ -157,9 +150,11 @@ function moneyLine(c) {
 const priceText = (c) => c.dealType === "ONE_TIME" ? (c.totalPrice ? `${money(c.totalPrice)} one-time` : "One-time") : (c.plan ? c.plan.name + " · " : "") + (c.monthlyFee ? `${money(c.monthlyFee)} / month` : c.plan ? "" : "—");
 
 // ---------- task board ----------
-const TF = { person: "me", hideDone: false }; // admin can switch person; members always see their own
+const TF = { person: "me", hideDone: true }; // admin can switch person; members always see their own
 function canEditTask(t) { return isAdmin() || t.assigneeId === S.me.id; }
 const nextStatus = (s) => ({ TODO: "DOING", DOING: "DONE", DONE: "TODO" })[s];
+// Open tasks first, then by due date (no date last), then oldest first
+const sortTasks = (list) => [...list].sort((a, b) => ((a.status === "DONE") - (b.status === "DONE")) || ((a.dueDate || "9999") < (b.dueDate || "9999") ? -1 : (a.dueDate || "9999") > (b.dueDate || "9999") ? 1 : 0) || (a.id - b.id));
 
 // Due-date label: Overdue / Today / Tomorrow / date
 function dueLabel(t) {
@@ -171,39 +166,36 @@ function dueLabel(t) {
   if (d === 1) return { text: "Due tomorrow", cls: "due-soon" };
   return { text: `Due ${fmtDate(t.dueDate)}`, cls: "" };
 }
-function taskSubline(t, compact, phase) {
+function taskSubline(t, compact) {
   const due = dueLabel(t), parts = [];
   if (due) parts.push(h("span", { class: due.cls }, due.text));
   if (t.status === "DOING") parts.push(h("span", { style: "color:var(--warn)" }, "In progress"));
-  if (compact && phase) parts.push(phase.ongoing ? phase.title : `Days ${phase.from}–${phase.to} · ${phase.title}`);
-  else if (t.notes) parts.push(t.notes);
+  if (!compact && t.notes) parts.push(t.notes);
   if (!parts.length) return null;
   return h("small", {}, parts.flatMap((p, i) => (i ? [" · ", p] : [p])));
 }
-function taskRow(t, plan, { compact = false } = {}) {
+function taskRow(t, { compact = false } = {}) {
   const open = S.open === "t" + t.id, can = canEditTask(t);
   const li = h("li", { class: "task" + (t.status === "DONE" ? " is-done" : "") });
-  const phase = plan.phases.find((p) => p.n === t.phase);
   li.append(h("div", { class: "trow" },
     h("button", { class: "stbtn", "data-s": t.status, disabled: !can, title: can ? `${TSTATUS[t.status]} · click for ${TSTATUS[nextStatus(t.status)]}` : TSTATUS[t.status], "aria-label": `${t.title}: ${TSTATUS[t.status]}`,
       onclick: () => act(() => api(`/tasks/${t.id}`, { method: "PATCH", body: { status: nextStatus(t.status) } })) }),
-    h("div", { class: "ttitle" }, t.title, taskSubline(t, compact, phase)),
+    h("div", { class: "ttitle" }, t.title, taskSubline(t, compact)),
     h("span", { class: "chip" + (t.assigneeId === S.me.id ? " mine" : "") }, t.assignee?.name || "Whole team"),
     compact ? h("span") : h("button", { class: "more", "aria-expanded": String(open), "aria-label": "Details for " + t.title, onclick: () => { S.open = open ? null : "t" + t.id; route(); } }, open ? "▴" : "▾")));
   if (open && !compact) {
     const title = h("input", { value: t.title, disabled: !isAdmin() });
     const assignee = h("select", { disabled: !isAdmin() }, userOptions(t.assigneeId, { none: "Whole team" }));
-    const phaseSel = h("select", { disabled: !isAdmin() }, plan.phases.map((p) => h("option", { value: p.n, selected: p.n === t.phase }, p.ongoing ? p.title : `Days ${p.from}–${p.to}: ${p.title}`)));
     const status = h("select", { disabled: !can }, options(TSTATUS, t.status));
     const due = h("input", { type: "date", value: ymd(t.dueDate), disabled: !isAdmin() });
     const notes = h("textarea", { disabled: !can, placeholder: "Links, progress, who you spoke to…" }, t.notes);
     const save = () => {
       const body = { status: status.value, notes: notes.value };
-      if (isAdmin()) Object.assign(body, { title: title.value, assigneeId: numOrNull(assignee.value), phase: Number(phaseSel.value), dueDate: due.value });
+      if (isAdmin()) Object.assign(body, { title: title.value, assigneeId: numOrNull(assignee.value), dueDate: due.value });
       act(() => api(`/tasks/${t.id}`, { method: "PATCH", body }), "Task saved");
     };
     li.append(h("div", { class: "tedit" }, h("div", { class: "form" },
-      field("Task", title, "full"), field("Assigned to", assignee), field("Phase", phaseSel), field("Status", status), field("Due date", due), field("Notes", notes, "full"),
+      field("Task", title, "full"), field("Assigned to", assignee), field("Status", status), field("Due date", due), field("Notes", notes, "full"),
       h("div", { class: "actions full" },
         !can ? h("span", { class: "muted", style: "font-size:12px" }, "Only the assignee or the admin can change this task.") : null,
         isAdmin() ? confirmBtn("Delete", () => act(() => api(`/tasks/${t.id}`, { method: "DELETE" }), "Task deleted")) : null,
@@ -211,52 +203,53 @@ function taskRow(t, plan, { compact = false } = {}) {
   }
   return li;
 }
+// Split tasks into Overdue / Due today / Coming up / No due date / Done
+function taskGroups(list) {
+  const g = { late: [], today: [], soon: [], none: [], done: [] };
+  for (const t of sortTasks(list)) {
+    if (t.status === "DONE") g.done.push(t);
+    else if (!t.dueDate) g.none.push(t);
+    else { const d = daysUntil(t.dueDate); (d < 0 ? g.late : d === 0 ? g.today : g.soon).push(t); }
+  }
+  return [["late", "Overdue", g.late], ["today", "Due today", g.today], ["soon", "Coming up", g.soon], ["none", "No due date", g.none], ["done", "Done", g.done]];
+}
 
 async function pageTasks() {
-  const [plan, tasks] = await Promise.all([api("/plan"), api("/tasks")]);
-  const dn = dayNum(plan.start);
-  const startInput = h("input", { type: "date", class: "inp", value: plan.start || "", style: "width:auto", disabled: !isAdmin(), "aria-label": "Plan start date",
-    onchange: (e) => act(() => api("/plan", { method: "PATCH", body: { start: e.target.value } }), "Start date saved") });
-  const root = h("div", { class: "stack" }, head("Task board", dn == null ? "Set the plan start date to begin." : dn < 1 ? `Day 1 is ${fmtDate(plan.start)}. Starts in ${1 - dn} day${1 - dn === 1 ? "" : "s"}.` : dn > 30 ? "The 30 days are over." : `Day ${dn} of 30`,
-    h("label", { class: "muted", style: "display:flex;gap:6px;align-items:center;font-size:13px" }, "Day 1:", startInput)));
-  const track = h("div", { class: "track", "aria-hidden": "true" });
-  for (let d = 1; d <= 30; d++) track.append(h("i", { class: dn != null && d < dn ? "past" : d === dn ? "today" : "", title: "Day " + d }));
-  root.append(track);
+  const tasks = await api("/tasks");
+  const root = h("div", { class: "stack" }, head("Task board", isAdmin() ? "Add tasks and assign them to the team. Each person sees their own tasks." : "Your tasks from Hishma. Tick the circle as you work through them."));
+
+  // Admin: add and assign a task
+  if (isAdmin()) {
+    const f = { title: h("input", { placeholder: "e.g. Call Garden Cafe about a website" }), assigneeId: h("select", {}, userOptions(null, { none: "Whole team" })),
+      dueDate: h("input", { type: "date", value: todayYMD() }), notes: h("input", { placeholder: "Details, phone numbers, links (optional)" }) };
+    f.assigneeId.value = "";
+    root.append(h("form", { class: "card card-body form", onsubmit: (e) => { e.preventDefault(); if (!f.title.value.trim()) return f.title.focus();
+      act(() => api("/tasks", { method: "POST", body: { title: f.title.value, assigneeId: numOrNull(f.assigneeId.value), dueDate: f.dueDate.value, notes: f.notes.value } }), "Task added and assigned"); } },
+      field("New task", f.title, "full"), field("Assign to", f.assigneeId), field("Due date", f.dueDate), field("Notes", f.notes), h("button", { class: "btn primary", type: "submit" }, "Add task")));
+  }
+
   if (!isAdmin()) TF.person = "me";
   let person = null;
   if (isAdmin()) {
     person = h("select", { class: "inp", style: "width:auto", "aria-label": "Show tasks for", onchange: (e) => { TF.person = e.target.value; route(); } },
-      h("option", { value: "me" }, "My tasks"), h("option", { value: "" }, "Everyone"),
-      S.users.filter((u) => u.id !== S.me.id).map((u) => h("option", { value: String(u.id) }, `${u.name}'s tasks`)), h("option", { value: "none" }, "Whole-team tasks"));
+      h("option", { value: "" }, "Everyone"), h("option", { value: "me" }, "My tasks"),
+      S.users.filter((u) => u.id !== S.me.id && u.active).map((u) => h("option", { value: String(u.id) }, `${u.name}'s tasks`)), h("option", { value: "none" }, "Whole-team tasks"));
     person.value = TF.person;
   }
-  const who = TF.person === "me" ? "you" : TF.person === "" ? "everyone" : TF.person === "none" ? "the whole team" : S.users.find((u) => String(u.id) === TF.person)?.name || "";
   root.append(h("div", { class: "actions", style: "justify-content:flex-start" }, person,
-    h("span", { class: "muted", style: "font-size:13px" }, `Showing tasks for ${who}${TF.person === "me" || (TF.person && TF.person !== "none") ? " and whole-team tasks" : ""}.`),
     h("label", { style: "display:flex;gap:6px;align-items:center;color:var(--muted)" }, h("input", { type: "checkbox", checked: TF.hideDone, onchange: (e) => { TF.hideDone = e.target.checked; route(); } }), "Hide done")));
+
   const forPerson = (t) => !TF.person || (TF.person === "none" ? !t.assigneeId : !t.assigneeId || (TF.person === "me" ? t.assigneeId === S.me.id : String(t.assigneeId) === TF.person));
-  const match = (t) => forPerson(t) && (!TF.hideDone || t.status !== "DONE");
-  for (const p of plan.phases) {
-    const all = tasks.filter((t) => t.phase === p.n && forPerson(t)), done = all.filter((t) => t.status === "DONE").length, shown = all.filter(match);
-    let st = "next", lbl = "Upcoming";
-    if (all.length && done === all.length) { st = "done"; lbl = "Complete"; }
-    else if (p.ongoing) { st = "now"; lbl = "Now"; }
-    else if (dn != null && dn > p.to) { st = "behind"; lbl = "Behind"; }
-    else if (dn != null && dn >= p.from) { st = "now"; lbl = "Now"; }
-    const sec = h("section", { class: "card phase" + (st === "now" ? " now" : "") },
-      h("div", { class: "ph-head" },
-        h("div", { class: "ph-days" }, h("b", {}, p.ongoing ? "Ongoing" : `Days ${p.from}–${p.to}`), phaseDates(p, plan.start)),
-        h("div", {}, h("h2", {}, p.title, h("span", { class: "pill " + st }, lbl)), h("div", { class: "ph-target" }, h("strong", {}, "Target: "), p.target), p.note ? h("div", { class: "ph-target" }, p.note) : null),
-        h("div", { class: "mono", style: "text-align:right" }, `${done}/${all.length}`, h("div", { class: "muted", style: "font-size:12px" }, "done"))));
-    sec.append(shown.length ? h("ul", { class: "tasks" }, shown.map((t) => taskRow(t, plan))) : h("div", { class: "empty", style: "border-top:1px solid var(--line)" }, all.length ? "All done here." : TF.person === "me" ? "No tasks for you in this phase." : "No tasks here."));
-    const title = h("input", { class: "inp", placeholder: isAdmin() ? `Add a task to ${p.title.toLowerCase()}` : "Add a task for yourself", "aria-label": "New task" });
-    const defaultAssignee = TF.person === "me" ? S.me.id : TF.person && TF.person !== "none" ? TF.person : null;
-    const assignSel = isAdmin() ? h("select", { class: "inp", "aria-label": "Assign to" }, userOptions(defaultAssignee, { none: "Whole team" })) : h("span");
-    const add = () => { if (!title.value.trim()) return title.focus(); act(() => api("/tasks", { method: "POST", body: { title: title.value, phase: p.n, assigneeId: isAdmin() ? numOrNull(assignSel.value) : S.me.id } }), "Task added"); };
-    title.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); add(); } });
-    sec.append(h("div", { class: "addrow" }, title, assignSel, h("button", { class: "btn primary", onclick: add }, "Add")));
-    root.append(sec);
+  const mine = tasks.filter(forPerson);
+  let any = false;
+  for (const [key, label, list] of taskGroups(mine)) {
+    if (!list.length || (key === "done" && TF.hideDone)) continue;
+    any = true;
+    root.append(h("section", { class: "card" + (key === "late" ? " late" : key === "today" ? " phase now" : "") },
+      h("div", { class: "card-head" }, h("h2", { class: key === "late" ? "due-late" : "" }, label), h("span", { class: "muted mono" }, String(list.length))),
+      h("ul", { class: "tasks", style: "border-top:0" }, list.map((t) => taskRow(t)))));
   }
+  if (!any) root.append(h("div", { class: "card empty" }, mine.length ? "Everything is done. Untick “Hide done” to see finished tasks." : isAdmin() ? "No tasks yet. Add the first one above." : "No tasks for you yet. Hishma will assign them here."));
   return root;
 }
 
@@ -502,18 +495,15 @@ async function pagePayouts() {
 
 // ---------- my panel (everyone, including the admin) ----------
 async function pageMe() {
-  const [plan, tasks, software, payouts] = await Promise.all([api("/plan"), api("/tasks"), api("/software"), api("/me/payouts")]);
-  const dn = dayNum(plan.start);
+  const [tasks, software, payouts] = await Promise.all([api("/tasks"), api("/software"), api("/me/payouts")]);
   const mine = tasks.filter((t) => t.assigneeId === S.me.id);
   const open = mine.filter((t) => t.status !== "DONE"), done = mine.length - open.length;
   const received = payouts.filter((p) => p.status === "PAID").reduce((s, p) => s + p.amount, 0), owed = payouts.filter((p) => p.status === "PENDING").reduce((s, p) => s + p.amount, 0);
   const roles = software.flatMap((s) => s.assignments.filter((a) => a.userId === S.me.id).map((a) => ({ sw: s.name, r: a.responsibility })));
-  const root = h("div", { class: "stack" }, head(`${S.me.name}'s panel`, `${S.users.find((u) => u.id === S.me.id)?.title || ""}${dn != null && dn >= 1 && dn <= 30 ? ` · Day ${dn} of 30` : ""}`));
+  const root = h("div", { class: "stack" }, head(`${S.me.name}'s panel`, `${S.users.find((u) => u.id === S.me.id)?.title || ""}`));
   root.append(h("div", { class: "grid g4" }, kpi(String(open.length), "Open tasks"), kpi(`${done}/${mine.length}`, "Tasks done"), kpi(money(received), "Paid to you"), kpi(money(owed), "Owed to you")));
-  const byPhase = plan.phases.map((p) => ({ p, list: open.filter((t) => t.phase === p.n) })).filter((x) => x.list.length);
   root.append(h("div", { class: "card" }, h("div", { class: "card-head" }, h("h2", {}, "My open tasks"), h("a", { href: "#tasks", class: "btn small" }, "Open task board")),
-    byPhase.length ? byPhase.map(({ p, list }) => h("div", {}, h("div", { class: "muted", style: "font-size:12px;padding:10px 16px 0;font-weight:600" }, p.ongoing ? p.title : `Days ${p.from}–${p.to} · ${p.title} · ${phaseDates(p, plan.start)}`),
-      h("ul", { class: "tasks", style: "border-top:0" }, list.map((t) => taskRow(t, plan, { compact: true }))))) : h("div", { class: "empty" }, "No open tasks. Nice work.")));
+    open.length ? h("ul", { class: "tasks", style: "border-top:0" }, sortTasks(open).map((t) => taskRow(t, { compact: true }))) : h("div", { class: "empty" }, "No open tasks. Nice work.")));
   root.append(h("div", { class: "card" }, h("div", { class: "card-head" }, h("h2", {}, "My software")),
     roles.length ? h("div", { class: "card-body assign" }, roles.map((x) => h("span", { class: "chip mine" }, `${x.sw} · ${x.r}`))) : h("div", { class: "empty" }, "You're not assigned to any software yet.")));
   root.append(h("div", { class: "card" }, h("div", { class: "card-head" }, h("h2", {}, "My payments from Epoch")),

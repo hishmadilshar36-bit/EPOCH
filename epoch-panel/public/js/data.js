@@ -134,9 +134,11 @@ async function api(path, { method = "GET", body } = {}) {
   if (path === "/tasks" && method === "GET")
     return q(sb.from("tasks").select(SEL.task).order("phase").order("sort_order").order("id"));
   if (path === "/tasks" && method === "POST") {
+    if (!admin()) throw new Error("Only the admin can add tasks.");
     const row = toRow("tasks", body);
-    if (!admin()) row.assignee_id = ME.id; // members add tasks for themselves
-    const last = await q(sb.from("tasks").select("sort_order").eq("phase", row.phase).order("sort_order", { ascending: false }).limit(1));
+    if (!row.title) throw new Error("Task is required.");
+    row.phase = 0; // the 30-day plan phases are no longer used
+    const last = await q(sb.from("tasks").select("sort_order").order("sort_order", { ascending: false }).limit(1));
     row.sort_order = (last[0]?.sort_order || 0) + 1;
     return q(sb.from("tasks").insert(row).select(SEL.task).single());
   }
