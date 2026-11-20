@@ -68,7 +68,7 @@ async function boot() {
   // The admin panel is its own page: non-admins get signed out and sent to its sign-in with a message
   if (MODE === "admin" && !isAdminUser()) { await api("/logout", { method: "POST" }).catch(() => {}); location.replace("index.html#admin-denied"); return; }
   if (MODE === "admin" && S.me.mustChangePassword) { location.replace("app.html#account"); return; }
-  $("meRole").textContent = isAdminUser() ? "· Admin" : "";
+  $("meRole").textContent = MODE === "admin" ? "· Admin" : ""; // member portal: no admin label
   document.querySelectorAll('#nav a[data-page="customers"]').forEach((a) => (a.hidden = !canSeeCustomers()));
   $("logout").onclick = async () => { await api("/logout", { method: "POST" }).catch(() => {}); location.replace(SIGN_IN()); };
   window.addEventListener("hashchange", () => { S.open = null; route(); });
