@@ -65,12 +65,12 @@ const S = { me: null, users: [], open: null };
 async function boot() {
   try { S.me = (await api("/me")).user; } catch { return; }
   $("meName").textContent = S.me.name;
-  if (MODE === "admin" && (!isAdminUser() || S.me.mustChangePassword)) { location.replace("app.html" + (S.me.mustChangePassword ? "#account" : "")); return; }
+  // The admin panel is its own page: non-admins get signed out and sent to its sign-in with a message
+  if (MODE === "admin" && !isAdminUser()) { await api("/logout", { method: "POST" }).catch(() => {}); location.replace("index.html#admin-denied"); return; }
+  if (MODE === "admin" && S.me.mustChangePassword) { location.replace("app.html#account"); return; }
   $("meRole").textContent = isAdminUser() ? "· Admin" : "";
-  const sw = $("switchPanel");
-  if (sw) sw.hidden = !isAdminUser();
   document.querySelectorAll('#nav a[data-page="customers"]').forEach((a) => (a.hidden = !canSeeCustomers()));
-  $("logout").onclick = async () => { await api("/logout", { method: "POST" }).catch(() => {}); location.replace("index.html"); };
+  $("logout").onclick = async () => { await api("/logout", { method: "POST" }).catch(() => {}); location.replace(SIGN_IN()); };
   window.addEventListener("hashchange", () => { S.open = null; route(); });
   if (!location.hash) location.hash = S.me.mustChangePassword ? "#account" : MODE === "admin" ? "#dashboard" : "#me";
   else route();

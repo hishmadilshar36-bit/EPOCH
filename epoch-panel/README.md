@@ -24,8 +24,8 @@ New members get a temporary password from the admin (Admin panel → **Team acco
 
 ## Two places
 
-- **Workplace** (`app.html`): where every team member works, with the same view for everyone: My panel, own tasks, the team's tasks for today (with who has finished), customers, software and plans.
-- **Admin panel** (`admin.html`): only people with the Admin role, opened from the **Open admin panel** button in the workplace. Overview with money, assigning tasks to anyone, customers with payments, customer payments, money split, team accounts, software and plan setup. Anyone else who opens it is sent back to the workplace.
+- **Member portal** (`app.html`, sign in at `index.html`): where every team member works, with the same view for everyone: My panel, own tasks, the team's tasks for today (with who has finished), customers, software and plans.
+- **Admin panel** (`admin.html`): a separate page with its own address and sign-in (`index.html#admin`); there are no links between it and the member portal. Only people with the Admin role can use it: overview with money, assigning tasks to anyone, customers with payments, customer payments, money split, team accounts, software and plan setup. Anyone else is signed out and told only admins can use it.
 
 ## Who can do what (enforced in Supabase)
 

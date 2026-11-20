@@ -24,7 +24,12 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="js/data.js"></script>
 <script>
-sb.auth.getSession().then(({ data }) => { if (data.session) location.replace("app.html"); });
+// index.html#admin is the admin panel's own sign-in; plain index.html is the member portal's
+const forAdmin = /^#admin/.test(location.hash);
+const target = forAdmin ? "admin.html" : "app.html";
+if (forAdmin) document.querySelector("h1").textContent = "Sign in to the admin panel";
+if (location.hash === "#admin-denied") { const e = document.getElementById("err"); e.textContent = "Only admins can use the admin panel. Sign in with an admin account."; e.hidden = false; }
+sb.auth.getSession().then(({ data }) => { if (data.session && location.hash !== "#admin-denied") location.replace(target); });
 document.getElementById("loginForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const err = document.getElementById("err"), go = document.getElementById("go");
@@ -35,7 +40,7 @@ document.getElementById("loginForm").addEventListener("submit", async (e) => {
     if (!/^[a-z0-9._-]{3,30}$/.test(username) || !password) throw new Error("Wrong username or password.");
     const { error } = await sb.auth.signInWithPassword({ email: `${username}@${EMAIL_DOMAIN}`, password });
     if (error) throw new Error(/invalid/i.test(error.message) ? "Wrong username or password." : /banned/i.test(error.message) ? "This account is disabled. Ask the admin." : error.message);
-    location.replace("app.html");
+    location.replace(target);
   } catch (x) { err.textContent = x.message; err.hidden = false; }
   finally { go.disabled = false; }
 });

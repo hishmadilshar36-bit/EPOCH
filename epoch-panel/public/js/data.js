@@ -7,6 +7,9 @@ const SUPABASE_URL = "https://pghrlsctyifzpnqoghpw.supabase.co";
 const SUPABASE_KEY = "sb_publishable_zWbF6AhzKVLSQI6xN3pnEQ_PwyR3AqR"; // publishable key: safe to be public
 const EMAIL_DOMAIN = "epoch.invalid"; // usernames are stored as <username>@epoch.invalid
 
+// Sign-in page for this page: the admin panel has its own (index.html#admin)
+const SIGN_IN = () => "index.html" + (document.body?.dataset.mode === "admin" ? "#admin" : "");
+
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, storageKey: "epoch-panel-auth" },
 });
@@ -70,7 +73,7 @@ function friendly(err) {
   if (code === "23514" || code === "22P02") return new Error("Some of those values aren't allowed. Check the form and try again.");
   if (code === "42501") return new Error(/Only the admin/.test(msg) ? msg : "You don't have permission to do that.");
   if (code === "PGRST116") return new Error("That item no longer exists.");
-  if (/JWT|session/i.test(msg)) { location.replace("index.html"); return new Error("Please sign in."); }
+  if (/JWT|session/i.test(msg)) { location.replace(SIGN_IN()); return new Error("Please sign in."); }
   return new Error(msg || "Something went wrong. Check your connection and try again.");
 }
 async function q(promise) {
@@ -93,9 +96,9 @@ async function callFn(name, body) {
 let ME = null;
 async function loadMe() {
   const { data: { session } } = await sb.auth.getSession();
-  if (!session) { location.replace("index.html"); throw new Error("Please sign in."); }
+  if (!session) { location.replace(SIGN_IN()); throw new Error("Please sign in."); }
   const me = await q(sb.from("profiles").select(SEL.profile).eq("id", session.user.id).maybeSingle());
-  if (!me || !me.active) { await sb.auth.signOut(); location.replace("index.html"); throw new Error("Please sign in."); }
+  if (!me || !me.active) { await sb.auth.signOut(); location.replace(SIGN_IN()); throw new Error("Please sign in."); }
   ME = me;
   return me;
 }
