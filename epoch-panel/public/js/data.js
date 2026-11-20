@@ -8,10 +8,13 @@ const SUPABASE_KEY = "sb_publishable_zWbF6AhzKVLSQI6xN3pnEQ_PwyR3AqR"; // publis
 const EMAIL_DOMAIN = "epoch.invalid"; // usernames are stored as <username>@epoch.invalid
 
 // Sign-in page for this page: the admin panel has its own (index.html#admin)
-const SIGN_IN = () => "index.html" + (document.body?.dataset.mode === "admin" ? "#admin" : "");
+// The admin panel (admin.html, and its sign-in index.html#admin) keeps its own session,
+// separate from the member portal, so both can be signed in on one browser.
+const PANEL = document.body?.dataset.mode === "admin" || /^#admin/.test(location.hash) ? "admin" : "work";
+const SIGN_IN = () => "index.html" + (PANEL === "admin" ? "#admin" : "");
 
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
-  auth: { persistSession: true, autoRefreshToken: true, storageKey: "epoch-panel-auth" },
+  auth: { persistSession: true, autoRefreshToken: true, storageKey: PANEL === "admin" ? "epoch-admin-auth" : "epoch-panel-auth" },
 });
 
 const COMPANY = { name: "Epoch", openedOn: "2025-02-02" }; // company opening date / anniversary

@@ -67,7 +67,6 @@ async function boot() {
   $("meName").textContent = S.me.name;
   // The admin panel is its own page: non-admins get signed out and sent to its sign-in with a message
   if (MODE === "admin" && !isAdminUser()) { await api("/logout", { method: "POST" }).catch(() => {}); location.replace("index.html#admin-denied"); return; }
-  if (MODE === "admin" && S.me.mustChangePassword) { location.replace("app.html#account"); return; }
   $("meRole").textContent = MODE === "admin" ? "· Admin" : ""; // member portal: no admin label
   document.querySelectorAll('#nav a[data-page="customers"]').forEach((a) => (a.hidden = !canSeeCustomers()));
   $("logout").onclick = async () => { await api("/logout", { method: "POST" }).catch(() => {}); location.replace(SIGN_IN()); };
@@ -185,7 +184,8 @@ function moneyLine(c) {
 const priceText = (c) => c.dealType === "ONE_TIME" ? (c.totalPrice ? `${money(c.totalPrice)} one-time` : "One-time") : (c.plan ? c.plan.name + " · " : "") + (c.monthlyFee ? `${money(c.monthlyFee)} / month` : c.plan ? "" : "—");
 
 // ---------- task board ----------
-const TF = { person: "me", hideDone: true }; // admin can switch person; members always see their own
+// Admin panel opens on everyone's tasks; members always see their own
+const TF = { person: document.body.dataset.mode === "admin" ? "" : "me", hideDone: true };
 function canEditTask(t) { return isAdmin() || t.assigneeId === S.me.id; }
 const nextStatus = (s) => ({ TODO: "DOING", DOING: "DONE", DONE: "TODO" })[s];
 // Open tasks first, then by due date (no date last), then oldest first
